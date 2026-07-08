@@ -1,0 +1,1124 @@
+{
+  "top": [
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "image:image-dom:image:size:small"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.6587867636800234,
+      "stability": 0.41177238762917623,
+      "updates": 394
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:browser",
+        "image:image-dom:image:size:small"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5102940328869225,
+      "stability": 0.3326496743427181,
+      "updates": 356
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:viewport:tall",
+        "image:image-dom:image:size:small"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5102940328869225,
+      "stability": 0.3178776161125092,
+      "updates": 342
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:scroll:0",
+        "image:image-dom:image:size:small"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5102940328869225,
+      "stability": 0.3062709989316308,
+      "updates": 331
+    },
+    {
+      "tokens": [
+        "body:body-action:change:text",
+        "image:image-dom:image:size:small"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.6587867636797005,
+      "stability": 0.27059821489917146,
+      "updates": 269
+    },
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "image:page-visual:screenshot:saturation:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099295739690855,
+      "stability": 0.256797944168767,
+      "updates": 249
+    },
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "image:page-visual:screenshot:hue:neutral"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099295739690855,
+      "stability": 0.256797944168767,
+      "updates": 249
+    },
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "image:page-visual:screenshot:brightness:high"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099295738884243,
+      "stability": 0.21983297411003408,
+      "updates": 217
+    },
+    {
+      "tokens": [
+        "image:image-dom:image:size:small",
+        "text:dom-text:title:note"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.6773477687250823,
+      "stability": 0.2079728354368761,
+      "updates": 211
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:browser",
+        "image:page-visual:screenshot:saturation:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090833883293,
+      "stability": 0.21705007935036924,
+      "updates": 239
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:browser",
+        "image:page-visual:screenshot:hue:neutral"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090833883293,
+      "stability": 0.21705007935036924,
+      "updates": 239
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:viewport:tall",
+        "image:page-visual:screenshot:saturation:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090833839105,
+      "stability": 0.21167455102280922,
+      "updates": 234
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:viewport:tall",
+        "image:page-visual:screenshot:hue:neutral"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090833839105,
+      "stability": 0.21167455102280922,
+      "updates": 234
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:scroll:0",
+        "image:page-visual:screenshot:saturation:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090833764272,
+      "stability": 0.20629958940955417,
+      "updates": 229
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:scroll:0",
+        "image:page-visual:screenshot:hue:neutral"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090833764272,
+      "stability": 0.20629958940955417,
+      "updates": 229
+    },
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "image:page-visual:screenshot:edge:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099295720015077,
+      "stability": 0.185175738750208,
+      "updates": 187
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:browser",
+        "image:page-visual:screenshot:brightness:high"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090832276948,
+      "stability": 0.1837210103194701,
+      "updates": 208
+    },
+    {
+      "tokens": [
+        "body:body-action:action:click_button",
+        "image:image-dom:image:size:small"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.6587867605834491,
+      "stability": 0.1723409906790901,
+      "updates": 182
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:viewport:tall",
+        "image:page-visual:screenshot:brightness:high"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090831118745,
+      "stability": 0.17834548199191008,
+      "updates": 203
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:scroll:0",
+        "image:page-visual:screenshot:brightness:high"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090829157317,
+      "stability": 0.17297052037865504,
+      "updates": 198
+    },
+    {
+      "tokens": [
+        "body:body-action:action:click_button",
+        "image:page-visual:screenshot:saturation:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099295274894781,
+      "stability": 0.15054118376605627,
+      "updates": 157
+    },
+    {
+      "tokens": [
+        "body:body-action:action:click_button",
+        "image:page-visual:screenshot:hue:neutral"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099295274894781,
+      "stability": 0.15054118376605627,
+      "updates": 157
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:saturation:low",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299314137065241,
+      "stability": 0.14597618201608548,
+      "updates": 151
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:hue:neutral",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299314137065241,
+      "stability": 0.14597618201608548,
+      "updates": 151
+    },
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197220888135596,
+      "stability": 0.14593508776442576,
+      "updates": 152
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:browser",
+        "image:page-visual:screenshot:edge:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090810683775,
+      "stability": 0.15684185744352336,
+      "updates": 183
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:viewport:tall",
+        "image:page-visual:screenshot:edge:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5499090798490166,
+      "stability": 0.152541472562429,
+      "updates": 179
+    },
+    {
+      "tokens": [
+        "image:image-dom:image:size:small",
+        "text:dom-text:title:つくる"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.6773477012798766,
+      "stability": 0.14192975013949938,
+      "updates": 153
+    },
+    {
+      "tokens": [
+        "image:image-dom:image:size:small",
+        "text:dom-text:title:つながる"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.6773477012798766,
+      "stability": 0.14192975013949938,
+      "updates": 153
+    },
+    {
+      "tokens": [
+        "image:image-dom:image:size:small",
+        "text:dom-text:title:とどける"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.6773477012798766,
+      "stability": 0.14192975013949938,
+      "updates": 153
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:scroll:0",
+        "image:page-visual:screenshot:edge:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.549909077990518,
+      "stability": 0.14824165439563963,
+      "updates": 175
+    },
+    {
+      "tokens": [
+        "body:body-action:change:error",
+        "image:page-visual:screenshot:saturation:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.709929191641351,
+      "stability": 0.12742701165089426,
+      "updates": 137
+    },
+    {
+      "tokens": [
+        "body:body-action:change:error",
+        "image:page-visual:screenshot:hue:neutral"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.709929191641351,
+      "stability": 0.12742701165089426,
+      "updates": 137
+    },
+    {
+      "tokens": [
+        "body:body-action:change:title",
+        "image:image-dom:image:size:small"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.658786575131249,
+      "stability": 0.12829464878732968,
+      "updates": 143
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:saturation:low",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299306817559329,
+      "stability": 0.12151190122791006,
+      "updates": 130
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:hue:neutral",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299306817559329,
+      "stability": 0.12151190122791006,
+      "updates": 130
+    },
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197213582333987,
+      "stability": 0.12041814390962925,
+      "updates": 130
+    },
+    {
+      "tokens": [
+        "body:body-action:action:click_button",
+        "image:page-visual:screenshot:brightness:high"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099288545494729,
+      "stability": 0.12051209930442071,
+      "updates": 131
+    },
+    {
+      "tokens": [
+        "body:body-action:change:error",
+        "image:page-visual:screenshot:brightness:high"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099288545494729,
+      "stability": 0.12049649130395666,
+      "updates": 131
+    },
+    {
+      "tokens": [
+        "body:body-action:change:error",
+        "image:page-visual:screenshot:edge:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099285871098401,
+      "stability": 0.11703013369295524,
+      "updates": 128
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:brightness:high",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299299571238428,
+      "stability": 0.11452210671700272,
+      "updates": 124
+    },
+    {
+      "tokens": [
+        "body:body-action:action:click_button",
+        "image:page-visual:screenshot:edge:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099284774584941,
+      "stability": 0.11589224015647683,
+      "updates": 127
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:edge:low",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299293822202256,
+      "stability": 0.11102720946154905,
+      "updates": 121
+    },
+    {
+      "tokens": [
+        "body:body-action:change:url",
+        "image:image-dom:image:size:small"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.6587861628437963,
+      "stability": 0.11587132158708957,
+      "updates": 132
+    },
+    {
+      "tokens": [
+        "body:body-action:change:error",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197195862179224,
+      "stability": 0.10765967198223099,
+      "updates": 119
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:browser",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5574942782726657,
+      "stability": 0.11818539907070452,
+      "updates": 146
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:scroll:0",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5574942653484448,
+      "stability": 0.1171066518734092,
+      "updates": 145
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:viewport:tall",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5574942509881994,
+      "stability": 0.11602790467611387,
+      "updates": 144
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:saturation:low",
+        "text:dom-text:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299231577367323,
+      "stability": 0.09588265468791649,
+      "updates": 108
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:edge:low",
+        "text:dom-text:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299231577367323,
+      "stability": 0.09588265468791649,
+      "updates": 108
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:hue:neutral",
+        "text:dom-text:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299231577367323,
+      "stability": 0.09588265468791649,
+      "updates": 108
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:brightness:high",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299222304146151,
+      "stability": 0.0947176889360986,
+      "updates": 107
+    },
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "text:dom-text:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197139394504187,
+      "stability": 0.09490120005483273,
+      "updates": 108
+    },
+    {
+      "tokens": [
+        "body:body-action:change:error",
+        "text:dom-text:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197130250984805,
+      "stability": 0.0937413389705238,
+      "updates": 107
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:brightness:high",
+        "text:dom-text:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299200552145871,
+      "stability": 0.09238775743246282,
+      "updates": 105
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:saturation:low",
+        "text:dom-text:読み込んでいます"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299200552145871,
+      "stability": 0.09238775743246282,
+      "updates": 105
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:edge:low",
+        "text:dom-text:読み込んでいます"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299200552145871,
+      "stability": 0.09238775743246282,
+      "updates": 105
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:hue:neutral",
+        "text:dom-text:読み込んでいます"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299200552145871,
+      "stability": 0.09238775743246282,
+      "updates": 105
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:edge:low",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299200552145871,
+      "stability": 0.09238775743246282,
+      "updates": 105
+    },
+    {
+      "tokens": [
+        "body:body-action:日本語",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197120091518823,
+      "stability": 0.09258147788621486,
+      "updates": 106
+    },
+    {
+      "tokens": [
+        "body:body-action:日本語",
+        "text:dom-text:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197120091518823,
+      "stability": 0.09258147788621486,
+      "updates": 106
+    },
+    {
+      "tokens": [
+        "body:body-action:日本語",
+        "image:page-visual:screenshot:saturation:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099205548599918,
+      "stability": 0.09279294441675741,
+      "updates": 107
+    },
+    {
+      "tokens": [
+        "body:body-action:日本語",
+        "image:page-visual:screenshot:edge:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099205548599918,
+      "stability": 0.09279294441675741,
+      "updates": 107
+    },
+    {
+      "tokens": [
+        "body:body-action:日本語",
+        "image:page-visual:screenshot:hue:neutral"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099205548599918,
+      "stability": 0.09279294441675741,
+      "updates": 107
+    },
+    {
+      "tokens": [
+        "body:body-action:success:1",
+        "text:dom-text:読み込んでいます"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197108803223288,
+      "stability": 0.09142161680190593,
+      "updates": 105
+    },
+    {
+      "tokens": [
+        "body:body-action:change:error",
+        "text:dom-text:読み込んでいます"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197108803223288,
+      "stability": 0.09142161680190593,
+      "updates": 105
+    },
+    {
+      "tokens": [
+        "body:body-action:日本語",
+        "text:dom-text:読み込んでいます"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197108803223288,
+      "stability": 0.09142161680190593,
+      "updates": 105
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:brightness:high",
+        "text:dom-text:読み込んでいます"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7299157993543057,
+      "stability": 0.08889286017700915,
+      "updates": 102
+    },
+    {
+      "tokens": [
+        "body:body-action:change:error",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197082324505366,
+      "stability": 0.08910189463328806,
+      "updates": 103
+    },
+    {
+      "tokens": [
+        "body:body-action:日本語",
+        "image:page-visual:screenshot:brightness:high"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099172020762583,
+      "stability": 0.0893280500557995,
+      "updates": 104
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:browser",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.557493766869547,
+      "stability": 0.10092544391397934,
+      "updates": 130
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:scroll:0",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5574936971227573,
+      "stability": 0.09984669671668402,
+      "updates": 129
+    },
+    {
+      "tokens": [
+        "body:browser-body:body:viewport:tall",
+        "text:dom-text:heading:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.5574936971227573,
+      "stability": 0.09984669671668402,
+      "updates": 129
+    },
+    {
+      "tokens": [
+        "body:body-action:action:click_button",
+        "text:dom-text:title:google"
+      ],
+      "modalities": [
+        "body",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7197009276982981,
+      "stability": 0.08446245029605233,
+      "updates": 99
+    },
+    {
+      "tokens": [
+        "body:body-action:change:text",
+        "image:page-visual:screenshot:saturation:low"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099107172493575,
+      "stability": 0.08469941140759459,
+      "updates": 100
+    },
+    {
+      "tokens": [
+        "body:body-action:change:text",
+        "image:page-visual:screenshot:hue:neutral"
+      ],
+      "modalities": [
+        "body",
+        "image"
+      ],
+      "w": 1.0,
+      "coactivity": 0.7099107172493575,
+      "stability": 0.08469941140759459,
+      "updates": 100
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:brightness:high",
+        "text:dom-text:title:アカウントを作成"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.729901953259581,
+      "stability": 0.08190306566610181,
+      "updates": 96
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:brightness:high",
+        "text:dom-text:heading:アカウントを作成"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.729901953259581,
+      "stability": 0.08190306566610181,
+      "updates": 96
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:brightness:high",
+        "text:dom-text:アカウントを作成"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.729901953259581,
+      "stability": 0.08190306566610181,
+      "updates": 96
+    },
+    {
+      "tokens": [
+        "image:page-visual:screenshot:brightness:high",
+        "text:dom-text:名前を入力してください"
+      ],
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "w": 1.0,
+      "coactivity": 0.729901953259581,
+      "stability": 0.08190306566610181,
+      "updates": 96
+    }
+  ]
+}

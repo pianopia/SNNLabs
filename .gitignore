@@ -1,0 +1,15 @@
+.nimble/
+.local_nimble/
+nimcache/
+nimblecache/
+.crown/
+*.exe
+*.dll
+.env
+logs/
+
+.midnote/
+
+# midnote tracked markdown
+SPEC.md
+# end midnote tracked markdown

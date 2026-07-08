@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SNN Neuron Inspector</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <header>
+          <p class="eyebrow">Elfentier</p>
+          <h1>SNN Neuron Inspector</h1>
+        </header>
+
+        <section class="import-panel">
+          <input id="modelFileInput" type="file" accept=".edensnn,.pt,.json,.chat.json,application/x-edensnn,application/json" hidden />
+          <button id="importButton" type="button">Import Model</button>
+          <button id="clearButton" type="button">Clear</button>
+          <button id="exportButton" type="button">Export Updated</button>
+          <p id="modelStatus">No model loaded.</p>
+        </section>
+
+        <section class="metrics" id="metrics"></section>
+
+        <section class="panel">
+          <h2>Active Neurons</h2>
+          <div id="activeNeurons" class="token-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Strong Links</h2>
+          <div id="strongLinks" class="link-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Spike Threshold</h2>
+          <label class="slider-row" for="spikeThresholdInput">
+            <span>Mask</span>
+            <strong id="spikeThresholdValue">0.18</strong>
+          </label>
+          <input id="spikeThresholdInput" type="range" min="0" max="1" step="0.01" value="0.18" />
+        </section>
+
+        <section class="panel">
+          <h2>Neuron Render</h2>
+          <div class="render-actions">
+            <button id="audioRenderButton" type="button">Audio WAV</button>
+            <button id="videoRenderButton" type="button">Video WebM</button>
+          </div>
+          <p id="renderStatus" class="render-status">Ask the model first.</p>
+          <audio id="audioPreview" controls></audio>
+        </section>
+      </aside>
+
+      <section class="chat-area">
+        <div id="chatLog" class="chat-log"></div>
+
+        <form id="chatForm" class="composer">
+          <textarea id="promptInput" rows="2" placeholder="発火させたい入力を記述"></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

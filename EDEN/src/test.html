@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>簡易文字起こし</title>
+</head>
+<body>
+    <h2>マイク文字起こし</h2>
+    <button id="btn">音声認識スタート</button>
+    <div id="content" style="border:1px solid #ccc; padding:10px; margin-top:10px;">
+        ここに結果が表示されます...
+    </div>
+
+    <script>
+        const btn = document.getElementById('btn');
+        const content = document.getElementById('content');
+
+        // ブラウザ対応の接頭辞を考慮
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            alert("お使いのブラウザは音声認識に対応していません。");
+        } else {
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'ja-JP';      // 言語を日本語に設定
+            recognition.interimResults = true; // 認識途中の結果も取得する
+
+            // ボタンクリックで開始
+            btn.onclick = () => {
+                recognition.start();
+                btn.textContent = "認識中...";
+            };
+
+            // 結果が返ってきた時の処理
+            recognition.onresult = (event) => {
+                let transcript = event.results[0][0].transcript;
+                content.textContent = transcript;
+            };
+
+            // 終了した時の処理
+            recognition.onend = () => {
+                btn.textContent = "音声認識スタート";
+            };
+        }
+    </script>
+</body>
+</html>

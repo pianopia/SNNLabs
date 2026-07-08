@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Browser SNN Language Lab</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Browser SNN Language Lab</h1>
+          <p>ブラウザ操作と観測言語を、EDENとは独立したSNN学習環境で逐次学習します。</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="importModelButton" type="button">Import .edensnn</button>
+          <button id="exportModelButton" type="button">Export .edensnn</button>
+          <input id="modelFileInput" type="file" accept=".edensnn,application/x-edensnn" hidden />
+        </div>
+      </header>
+
+      <section class="workspace">
+        <section class="browser-panel">
+          <div class="panel-head">
+            <h2>Autonomous Browser Surface</h2>
+            <span id="agentStatus">idle</span>
+          </div>
+          <div class="url-row autonomous-controls">
+            <button id="startAgentButton" type="button">Start Agent</button>
+            <button id="stopAgentButton" type="button">Stop</button>
+            <button id="stepAgentButton" type="button">Step</button>
+            <label>
+              Speed
+              <select id="agentSpeedInput">
+                <option value="1400">slow</option>
+                <option value="850" selected>normal</option>
+                <option value="420">fast</option>
+              </select>
+            </label>
+            <label>
+              Policy
+              <select id="agentPolicyInput">
+                <option value="curiosity" selected>curiosity</option>
+                <option value="depth">depth scroll</option>
+                <option value="link">link seeker</option>
+              </select>
+            </label>
+          </div>
+          <div id="browserViewport" class="browser-viewport" tabindex="0" aria-label="Autonomous browser viewport">
+            <div id="browserDocument" class="browser-document"></div>
+            <div id="agentCursor" class="agent-cursor" aria-hidden="true"></div>
+          </div>
+          <p class="hint">
+            この環境では、SNNエージェントが内部Webページ上でマウス移動、クリック、スクロール、読解を自律実行します。各操作の結果として可視領域の言語がSNNへ入力されます。
+          </p>
+        </section>
+
+        <section class="learning-panel">
+          <div class="panel-head">
+            <h2>Agent Observation</h2>
+            <span id="modelStatus">fresh model</span>
+          </div>
+          <div class="form-grid two">
+            <label>
+              Current page
+              <input id="pageInput" type="text" value="habitat" readonly />
+            </label>
+            <label>
+              Last reward
+              <input id="rewardInput" type="number" min="-1" max="1" step="0.05" value="0" readonly />
+            </label>
+          </div>
+          <label>
+            Last operation
+            <input id="operationInput" type="text" value="observe" readonly />
+          </label>
+          <label>
+            Visible language observed by agent
+            <textarea id="textInput" rows="8"></textarea>
+          </label>
+          <div class="action-row">
+            <button id="resetButton" type="button">Reset Model</button>
+          </div>
+        </section>
+      </section>
+
+      <section class="metrics-grid">
+        <article class="metric"><span>Vocabulary</span><strong id="vocabMetric">0</strong></article>
+        <article class="metric"><span>Associations</span><strong id="assocMetric">0</strong></article>
+        <article class="metric"><span>Observations</span><strong id="obsMetric">0</strong></article>
+        <article class="metric"><span>Positive spikes</span><strong id="posMetric">0</strong></article>
+        <article class="metric"><span>Negative spikes</span><strong id="negMetric">0</strong></article>
+        <article class="metric"><span>Energy benefit</span><strong id="energyMetric">-</strong></article>
+      </section>
+
+      <section class="analysis-grid">
+        <article class="panel">
+          <h2>Token Neurons</h2>
+          <div id="tokenList" class="token-list"></div>
+        </article>
+        <article class="panel">
+          <h2>Associations</h2>
+          <div id="associationList" class="list"></div>
+        </article>
+        <article class="panel">
+          <h2>Trace</h2>
+          <div id="traceList" class="list"></div>
+        </article>
+        <article class="panel">
+          <h2>Operation Log</h2>
+          <div id="operationLog" class="list"></div>
+        </article>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
