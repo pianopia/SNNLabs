@@ -18,6 +18,16 @@ def accuracy(predictions: Tensor, targets: Tensor) -> float:
     return float((predictions == targets).float().mean().item())
 
 
+def majority_class_accuracy(targets: Tensor, num_classes: int) -> float:
+    """Accuracy of a baseline that always predicts the most frequent target class."""
+    if num_classes <= 0:
+        raise ValueError("num_classes must be positive")
+    if targets.numel() == 0:
+        return 0.0
+    counts = torch.bincount(targets.reshape(-1).to(torch.long), minlength=num_classes)
+    return float(counts.max().item()) / float(targets.numel())
+
+
 def _percentile(sorted_values: list[float], fraction: float) -> float:
     if not sorted_values:
         return 0.0

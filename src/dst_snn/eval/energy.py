@@ -37,3 +37,58 @@ def energy_ratio(snn_pj: float, dense_pj: float) -> float:
     if snn_pj <= 0:
         return float("inf")
     return float(dense_pj) / float(snn_pj)
+
+
+def dense_linear_mac_ops(in_features: int, out_features: int, *, time_steps: int = 1) -> float:
+    """MAC ops for a dense linear map applied once per time step."""
+    if in_features < 0 or out_features < 0 or time_steps < 0:
+        raise ValueError("sizes must be non-negative")
+    return float(in_features) * float(out_features) * float(time_steps)
+
+
+def estimate_snn_classifier_ops(
+    *,
+    in_features: int,
+    num_classes: int,
+    time_bins: int,
+    hidden_features: int = 0,
+    chrono_hidden: int = 0,
+    spikes_per_inference: float = 0.0,
+) -> dict[str, float]:
+    """Estimate AC/MAC ops and effective fanout for a layered SNN classifier.
+
+    Dense baseline MACs model a non-spiking MLP with the same layer widths,
+    evaluated at every time bin (worst-case dense temporal compute).
+
+    SNN energy uses spikes × effective fanout. Effective fanout averages the
+    post-synaptic widths of each layer so multi-layer models are not
+    under-counted as ``num_classes`` alone.
+    """
+    layers: list[tuple[int, int]] = []
+    width = in_features
+    if chrono_hidden > 0:
+        layers.append((width, chrono_hidden))
+        width = chrono_hidden
+    if hidden_features > 0:
+        layers.append((width, hidden_features))
+        width = hidden_features
+    layers.append((width, num_classes))
+
+    dense_macs = 0.0
+    fanout_weights = 0.0
+    fanout_total = 0.0
+    for src, dst in layers:
+        dense_macs += dense_linear_mac_ops(src, dst, time_steps=time_bins)
+        fanout_weights += float(dst) * float(dst)
+        fanout_total += float(dst)
+    effective_fanout = fanout_weights / max(1.0, fanout_total)
+    # Spikes are typically counted on the readout layer; scale by layer count so
+    # hidden activity is not ignored when estimating AC cost.
+    layer_scale = max(1.0, float(len(layers)))
+    snn_spike_events = float(spikes_per_inference) * layer_scale
+    return {
+        "dense_mac_ops": dense_macs,
+        "effective_fanout": effective_fanout,
+        "snn_spike_events": snn_spike_events,
+        "layer_count": float(len(layers)),
+    }

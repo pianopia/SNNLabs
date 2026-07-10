@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from benchmarks.threedcg.asset import Asset
 from benchmarks.threedcg.geometry import geometry_metrics
+from benchmarks.threedcg.render_similarity import render_similarity
 from benchmarks.threedcg.rig import rig_metrics
 from benchmarks.threedcg.skin import skin_metrics
 from benchmarks.threedcg.texture import texture_metrics
@@ -12,8 +15,13 @@ from benchmarks.threedcg.uv import uv_metrics
 from src.dst_snn.eval.result import MetricSet, RunResult
 
 
-def score_assets(candidate: Asset, reference: Asset) -> dict[str, dict]:
-    return {
+def score_assets(
+    candidate: Asset,
+    reference: Asset,
+    *,
+    include_render: bool = True,
+) -> dict[str, dict]:
+    scores: dict[str, dict] = {
         "geometry": geometry_metrics(candidate, reference),
         "topology": topology_metrics(candidate, reference),
         "uv": uv_metrics(candidate),
@@ -21,6 +29,10 @@ def score_assets(candidate: Asset, reference: Asset) -> dict[str, dict]:
         "skin": skin_metrics(candidate),
         "texture": texture_metrics(candidate),
     }
+    if include_render:
+        ssim_value: Optional[float] = render_similarity(candidate, reference)
+        scores["render"] = {"ssim": ssim_value, "available": ssim_value is not None}
+    return scores
 
 
 def _clamp01(value: float) -> float:
@@ -57,15 +69,26 @@ def aggregate_quality(scores: dict[str, dict]) -> float:
     rig = scores["rig"]
     if rig["bone_count_ratio"] is not None:
         parts.append(_ratio_score(rig["bone_count_ratio"]))
+    if rig.get("hierarchy_depth_diff") is not None:
+        # Zero depth diff is perfect; each extra level of mismatch decays score.
+        parts.append(_clamp01(1.0 - float(rig["hierarchy_depth_diff"]) / 8.0))
+    if rig.get("hierarchy_edit_distance") is not None:
+        parts.append(_clamp01(1.0 - float(rig["hierarchy_edit_distance"])))
 
     skin = scores["skin"]
     if skin["weight_normalization_error"] is not None:
         parts.append(_clamp01(1.0 - skin["weight_normalization_error"]))
         parts.append(_clamp01(1.0 - skin["isolated_weight_ratio"]))
+    if skin.get("weight_smoothness") is not None:
+        parts.append(_clamp01(1.0 - float(skin["weight_smoothness"])))
 
     tex = scores["texture"]
     if tex["pbr_channel_completeness"] is not None:
         parts.append(_clamp01(tex["pbr_channel_completeness"]))
+
+    render = scores.get("render")
+    if render and render.get("ssim") is not None:
+        parts.append(_clamp01(float(render["ssim"])))
 
     return float(sum(parts) / len(parts)) if parts else 0.0
 
@@ -77,7 +100,7 @@ def score_to_result(
     asset_id: str,
     build_latency_ms: float = 0.0,
 ) -> RunResult:
-    scores = score_assets(candidate, reference)
+    scores = score_assets(candidate, reference, include_render=True)
     quality = aggregate_quality(scores)
     metrics = MetricSet(
         quality=quality,

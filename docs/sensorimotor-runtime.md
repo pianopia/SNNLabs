@@ -103,9 +103,78 @@ The policy is intentionally simple: it samples actuator commands with a
 softmax over learned command scores and updates selected command scores toward
 the latest intrinsic reward.
 
+## WebSocket transport
+
+```python
+from src.dst_snn.sensorimotor.websocket_transport import (
+    LocalMessageHub,
+    serve_runtime,
+    websockets_available,
+)
+
+# In-process fan-out (no websockets package required):
+hub = LocalMessageHub()
+
+# Real WebSocket server (requires `pip install websockets`):
+# await serve_runtime(runtime, host="127.0.0.1", port=8766)
+```
+
+Each WS frame is one JSON sensorimotor message. Observation frames trigger a
+runtime tick; action / global_signal / trace messages are broadcast to clients.
+
+## Webcam sensor
+
+```python
+from src.dst_snn.sensorimotor.modules import WebcamSensor
+
+sensor = WebcamSensor(use_camera=False)  # synthetic frame stream for CI
+# sensor = WebcamSensor(use_camera=True, camera_index=0)  # needs OpenCV
+runtime.ingest(sensor.register())
+runtime.ingest(sensor.observe())
+```
+
+## Homeostasis and sleep replay
+
+Homeostatic offsets are **wired into ChronoPlastic thresholds**:
+
+```
+V_th_i' = V_th + clamp(gain * (rate_i - target), -max_offset, max_offset)
+```
+
+```python
+from src.dst_snn.sensorimotor.homeostasis import (
+    ExperienceBuffer,
+    HomeostasisController,
+    representation_stability,
+    sleep_replay,
+)
+from src.dst_snn.sensorimotor.world_model import PredictiveWorldModel, train_world_model_step
+
+homeo = HomeostasisController(target_rate=0.05, gain=2.0)
+model = PredictiveWorldModel(sensory_size=64, motor_size=16, latent_size=32)
+
+# train_world_model_step applies previous offsets inside the encoder, then
+# updates EMA rates from the new spikes.
+metrics = train_world_model_step(model, optimizer, sensory, motor, homeostasis=homeo)
+# metrics["latent_spike_rate"], metrics["homeo_threshold_offset"], ...
+
+buffer = ExperienceBuffer(capacity=64)
+buffer.add(sensory, motor, salience=0.8)
+sleep_replay(model, optimizer, buffer, steps=4)
+```
+
+You can also pass an explicit offset tensor:
+
+```python
+offset = homeo.tensor_offsets(model.latent_size, device=x.device)
+out = model(sensory, motor, threshold_offset=offset)
+```
+
+The synthetic sensorimotor benchmark records representation stability, latent
+spike rate, applied threshold offset, replay events, and fatigue in
+`MetricSet.extra` (`homeostasis_wired_to_threshold: true`).
+
 ## Still Deferred
 
-- WebSocket server/client transport.
 - Real hardware bridges such as serial/USB motor arms and tactile sensors.
-- Long-running autonomous policy loop that directly couples world-model
-  predictions to richer motor exploration.
+- Long-running autonomous policy loop with continuous WebSocket modules.

@@ -21,7 +21,8 @@ class SpikeDatasetConfig:
     sensor_size: tuple[int, int]
 
 
-def events_to_tensor(events, config: SpikeDatasetConfig) -> np.ndarray:
+def events_to_frames(events, config: SpikeDatasetConfig, *, binarize: bool = True) -> np.ndarray:
+    """Return polarity frames ``[time, 2, height, width]`` (float32)."""
     width, height = config.sensor_size
     frames = bin_events_to_frames(
         events["x"],
@@ -32,28 +33,51 @@ def events_to_tensor(events, config: SpikeDatasetConfig) -> np.ndarray:
         height=height,
         time_bins=config.time_bins,
     )
+    if binarize:
+        return (frames > 0).astype(np.float32)
+    return frames.astype(np.float32)
+
+
+def events_to_tensor(events, config: SpikeDatasetConfig) -> np.ndarray:
+    frames = events_to_frames(events, config, binarize=True)
     return frames_to_spike_tensor(frames)
 
 
 class _MappedDataset(Dataset):
-    def __init__(self, base, config: SpikeDatasetConfig) -> None:
+    def __init__(self, base, config: SpikeDatasetConfig, *, mode: str = "flat") -> None:
+        if mode not in {"flat", "frames"}:
+            raise ValueError("mode must be 'flat' or 'frames'")
         self.base = base
         self.config = config
+        self.mode = mode
 
     def __len__(self) -> int:
         return len(self.base)
 
     def __getitem__(self, index: int):
         events, label = self.base[index]
-        tensor = events_to_tensor(events, self.config)
+        if self.mode == "frames":
+            tensor = events_to_frames(events, self.config, binarize=True)
+        else:
+            tensor = events_to_tensor(events, self.config)
         return torch.from_numpy(tensor).float(), int(label)
 
 
-def map_tonic_dataset(base, config: SpikeDatasetConfig):
-    return _MappedDataset(base, config)
+def map_tonic_dataset(base, config: SpikeDatasetConfig, *, mode: str = "flat"):
+    return _MappedDataset(base, config, mode=mode)
 
 
-def load_nmnist(root: str, *, time_bins: int = 24):
+def dataset_targets(dataset) -> list[int] | None:
+    """Return cached integer targets when the wrapped dataset exposes them."""
+    targets = getattr(dataset, "targets", None)
+    if targets is None and hasattr(dataset, "base"):
+        targets = getattr(dataset.base, "targets", None)
+    if targets is None:
+        return None
+    return [int(target) for target in targets]
+
+
+def load_nmnist(root: str, *, time_bins: int = 24, mode: str = "flat"):
     import tonic
 
     sensor = tonic.datasets.NMNIST.sensor_size
@@ -61,20 +85,24 @@ def load_nmnist(root: str, *, time_bins: int = 24):
     train = tonic.datasets.NMNIST(save_to=root, train=True)
     test = tonic.datasets.NMNIST(save_to=root, train=False)
     in_features = sensor[0] * sensor[1] * 2
-    return _MappedDataset(train, config), _MappedDataset(test, config), in_features
+    return (
+        _MappedDataset(train, config, mode=mode),
+        _MappedDataset(test, config, mode=mode),
+        in_features,
+    )
 
 
-def load_nmnist_test_only(root: str, *, time_bins: int = 24):
+def load_nmnist_test_only(root: str, *, time_bins: int = 24, mode: str = "flat"):
     import tonic
 
     sensor = tonic.datasets.NMNIST.sensor_size
     config = SpikeDatasetConfig(time_bins=time_bins, sensor_size=(sensor[0], sensor[1]))
     test = tonic.datasets.NMNIST(save_to=root, train=False)
     in_features = sensor[0] * sensor[1] * 2
-    return _MappedDataset(test, config), in_features
+    return _MappedDataset(test, config, mode=mode), in_features
 
 
-def load_dvs_gesture(root: str, *, time_bins: int = 32, downsample: int = 4):
+def load_dvs_gesture(root: str, *, time_bins: int = 32, downsample: int = 4, mode: str = "flat"):
     import tonic
 
     sensor = tonic.datasets.DVSGesture.sensor_size
@@ -85,10 +113,14 @@ def load_dvs_gesture(root: str, *, time_bins: int = 32, downsample: int = 4):
     train = tonic.datasets.DVSGesture(save_to=root, train=True, transform=transform)
     test = tonic.datasets.DVSGesture(save_to=root, train=False, transform=transform)
     in_features = width * height * 2
-    return _MappedDataset(train, config), _MappedDataset(test, config), in_features
+    return (
+        _MappedDataset(train, config, mode=mode),
+        _MappedDataset(test, config, mode=mode),
+        in_features,
+    )
 
 
-def load_dvs_gesture_test_only(root: str, *, time_bins: int = 32, downsample: int = 4):
+def load_dvs_gesture_test_only(root: str, *, time_bins: int = 32, downsample: int = 4, mode: str = "flat"):
     import tonic
 
     sensor = tonic.datasets.DVSGesture.sensor_size
@@ -98,4 +130,4 @@ def load_dvs_gesture_test_only(root: str, *, time_bins: int = 32, downsample: in
     transform = tonic.transforms.Downsample(spatial_factor=1.0 / downsample)
     test = tonic.datasets.DVSGesture(save_to=root, train=False, transform=transform)
     in_features = width * height * 2
-    return _MappedDataset(test, config), in_features
+    return _MappedDataset(test, config, mode=mode), in_features

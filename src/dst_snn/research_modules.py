@@ -302,15 +302,31 @@ class ChronoPlasticLIFCell(nn.Module):
             traces=torch.zeros(batch_size, self.features, self.num_traces, device=device, dtype=dtype),
         )
 
+    def effective_threshold(self, threshold_offset: Optional[Tensor] = None) -> float | Tensor:
+        """Base threshold plus optional per-neuron / per-batch offset."""
+        if threshold_offset is None:
+            return self.threshold
+        return self.threshold + threshold_offset
+
     def forward(
         self,
         input_current: Tensor,
         state: Optional[ChronoPlasticState] = None,
+        *,
+        threshold_offset: Optional[Tensor] = None,
     ) -> tuple[Tensor, Tensor, ChronoPlasticState, Tensor]:
         if input_current.ndim != 2 or input_current.shape[-1] != self.features:
             raise ValueError(f"input_current must have shape [B,{self.features}]")
         if state is None:
             state = self.initial_state(input_current.shape[0], input_current.device, input_current.dtype)
+        if threshold_offset is not None:
+            if threshold_offset.ndim == 1 and threshold_offset.shape[0] != self.features:
+                raise ValueError(f"threshold_offset must have shape [{self.features}] or [B,{self.features}]")
+            if threshold_offset.ndim == 2 and (
+                threshold_offset.shape[0] != input_current.shape[0]
+                or threshold_offset.shape[1] != self.features
+            ):
+                raise ValueError(f"threshold_offset must have shape [{self.features}] or [B,{self.features}]")
 
         trace_decays = torch.sigmoid(self.trace_decay_logits).to(dtype=input_current.dtype, device=input_current.device)
         traces = state.traces * trace_decays.view(1, 1, -1) + input_current.unsqueeze(-1)
@@ -325,7 +341,10 @@ class ChronoPlasticLIFCell(nn.Module):
             + self.input_scale * input_current
             + self.trace_scale * trace_summary
         )
-        spikes = self.spike_fn(membrane)
+        threshold = self.effective_threshold(threshold_offset)
+        if threshold_offset is not None and isinstance(threshold, Tensor):
+            threshold = threshold.to(device=membrane.device, dtype=membrane.dtype)
+        spikes = self.spike_fn(membrane, threshold=threshold if threshold_offset is not None else None)
         membrane = torch.where(spikes.bool(), torch.full_like(membrane, self.reset), membrane)
         next_state = ChronoPlasticState(membrane=membrane, spike=spikes, traces=traces)
         return spikes, membrane, next_state, leak
@@ -337,6 +356,9 @@ class ChronoPlasticLIFLayer(nn.Module):
     Input shape is ``[B, T, input_size]``. The internal linear projection can be
     interpreted as synaptic current generation, while the cell handles adaptive
     temporal credit assignment with state-conditioned leak.
+
+    ``threshold_offset`` (optional ``[H]`` or ``[B, H]``) raises or lowers the
+    per-neuron spike threshold for homeostatic control without changing weights.
     """
 
     def __init__(
@@ -347,13 +369,21 @@ class ChronoPlasticLIFLayer(nn.Module):
         **cell_kwargs: Any,
     ) -> None:
         super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
         self.input = nn.Linear(input_size, hidden_size)
         self.cell = ChronoPlasticLIFCell(hidden_size, num_traces=num_traces, **cell_kwargs)
+
+    @property
+    def threshold(self) -> float:
+        return float(self.cell.threshold)
 
     def forward(
         self,
         x: Tensor,
         state: Optional[ChronoPlasticState] = None,
+        *,
+        threshold_offset: Optional[Tensor] = None,
     ) -> dict[str, Tensor | ChronoPlasticState]:
         if x.ndim != 3:
             raise ValueError("x must have shape [B,T,F]")
@@ -362,7 +392,11 @@ class ChronoPlasticLIFLayer(nn.Module):
         leaks = []
         for step in range(x.shape[1]):
             current = self.input(x[:, step])
-            spike, membrane, state, leak = self.cell(current, state)
+            spike, membrane, state, leak = self.cell(
+                current,
+                state,
+                threshold_offset=threshold_offset,
+            )
             spikes.append(spike)
             membranes.append(membrane)
             leaks.append(leak)
@@ -371,6 +405,7 @@ class ChronoPlasticLIFLayer(nn.Module):
             "membrane": torch.stack(membranes, dim=1),
             "leak": torch.stack(leaks, dim=1),
             "state": state,
+            "threshold_offset": threshold_offset,
         }
 
 

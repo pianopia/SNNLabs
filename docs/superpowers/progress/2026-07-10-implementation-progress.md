@@ -58,7 +58,77 @@ Verification:
     `python benchmarks/neuromorphic/run_dvs_gesture.py --root data/dvs-gesture --epochs 1 --limit-train 32 --limit-test 32 --time-bins 8 --downsample 8 --batch-size 8 --smoke-from-test --out-dir artifacts/benchmarks/dvs-smoke`
   - DVS Gesture result: accuracy `0.0625`, decision latency fraction `0.9140625`, p50 latency `0.1215 ms`, p95 latency `0.1307 ms`, spikes/inference `4.40625`, params `5915`.
   - DVS note: tonic's figshare URL returned an AWS WAF challenge; downloaded the md5-identical `ibmGestureTest.tar.gz` from Zenodo record `8060604`, then tonic verified and extracted it.
+- Continued neuromorphic validation and accuracy work:
+  - Added deterministic random/class-stratified smoke splitting for tonic datasets with cached `targets`; this fixed the misleading N-MNIST prefix split where the first test samples were all digit `0`.
+  - Added classifier readout modes: `spike_count`, `max_membrane`, and `mean_membrane`.
+  - Exposed benchmark tuning flags for threshold, branch count, delay, Chrono frontend, readout mode, and seed.
+  - Added majority-class baseline metrics plus uniform chance accuracy to N-MNIST and DVS result JSON.
+  - Stratified N-MNIST smoke:
+    `python benchmarks/neuromorphic/run_nmnist.py --root data/nmnist --epochs 5 --limit-train 1024 --limit-test 512 --time-bins 12 --batch-size 64 --smoke-from-test --seed 7 --readout max_membrane --threshold 0.7 --out-dir artifacts/benchmarks/nmnist-smoke-stratified`
+    Result: accuracy `0.501953125`, majority baseline `0.11328125`, uniform chance `0.1`, p50 latency `0.4359 ms`, p95 latency `0.4897 ms`, spikes/inference `11.47265625`, params `23402`.
+  - DVS Gesture ablations remain weak:
+    - No-Chrono spike-count setting, stratified 168/96, 5 epochs: accuracy `0.0625`, majority baseline `0.09375`.
+    - Chrono max-membrane setting, stratified 168/96, 5 epochs: accuracy `0.09375`, majority baseline `0.09375`, output spikes `0.0`.
+    Interpretation: current direct DST-SNN classifier/input representation does not yet learn DVS Gesture above baseline; next work should add a hidden spiking representation or a stronger temporal/event-feature frontend before claiming DVS accuracy.
+- Latest full test suite after these changes:
+  - `. .venv/bin/activate && python -m pytest -v` passed: 79 tests.
+- Continued DVS accuracy work:
+  - Added optional hidden DST-SNN layer to `SnnClassifier` via `hidden_features`.
+  - Added `hidden_output` modes (`spikes` or `membrane`) so the output head can consume either hidden spikes or hidden membrane traces.
+  - Added `hidden_threshold`, `hidden_features`, and `hidden_output` CLI flags to N-MNIST and DVS runners.
+  - Fixed runner reproducibility by calling `torch.manual_seed(self.seed)` before model creation; split, DataLoader shuffle, and model initialization now share the benchmark seed.
+  - Fixed `active_neuron_fraction` reporting in N-MNIST and DVS runners to use `spike_stats` instead of a placeholder `0.0`.
+  - Seeded N-MNIST smoke after the reproducibility fix:
+    `python benchmarks/neuromorphic/run_nmnist.py --root data/nmnist --epochs 5 --limit-train 1024 --limit-test 512 --time-bins 12 --batch-size 64 --smoke-from-test --seed 7 --readout max_membrane --threshold 0.7 --out-dir artifacts/benchmarks/nmnist-smoke-stratified-seeded`
+    Result: accuracy `0.5078125`, majority baseline `0.11328125`, p50 latency `0.5987 ms`, p95 latency `0.8043 ms`, spikes/inference `8.109375`, active fraction `0.2285`.
+  - DVS hidden-layer ablations:
+    - `hidden_features=64`, thresholds `0.3`, hidden spikes to max-membrane readout, seed `13`: accuracy `0.1145833358168602` vs majority baseline `0.09375`.
+    - Same, seed `42`: accuracy `0.125` vs majority baseline `0.09375`.
+    - Lower-threshold fully spiking readout, seed `13`:
+      `python benchmarks/neuromorphic/run_dvs_gesture.py --root data/dvs-gesture --epochs 5 --limit-train 168 --limit-test 96 --time-bins 16 --downsample 8 --batch-size 8 --smoke-from-test --seed 13 --no-chrono --threshold 0.1 --hidden-features 64 --hidden-threshold 0.1 --hidden-output spikes --readout spike_count --out-dir artifacts/benchmarks/dvs-smoke-hidden64-t01-spikes-seed13`
+      Result: accuracy `0.1354166716337204`, majority baseline `0.09375`, p50 latency `0.2108 ms`, p95 latency `0.3191 ms`, decision-latency fraction `0.8730`, spikes/inference `173.6354`.
+    Interpretation: hidden spiking layer provides the first above-baseline DVS smoke signal, but it is seed-sensitive and not strong enough for a stable benchmark claim.
+
+Gap-fill implementation (2026-07-10 continued):
+- glTF `skin_weights` extraction from `JOINTS_0`/`WEIGHTS_0` accessors in `benchmarks/threedcg/asset.py` (+ skinned GLB unit test).
+- Dense MAC energy packing via `estimate_snn_classifier_ops` / `pack_snn_energy`; runners write `dense_energy_pj` and `energy_ratio_dense_over_snn`.
+- Optional `--with-ann-baseline` (mean-pool MLP) under `src/dst_snn/eval/baselines/`.
+- `render` family optionally included in `score_assets` / `aggregate_quality` when pyrender SSIM is available.
+- Offline unit corpus builder `scripts/build_threedcg_unit_corpus.py` and CLI `benchmarks/threedcg/run_score.py`.
+- Sensorimotor: `LocalMessageHub` + optional `serve_runtime` WebSocket, `WebcamSensor` (OpenCV or synthetic), fatigue dynamics on ticks.
+- Root `README.md` Benchmarks section and expanded `benchmarks/README.md` energy docs.
+
+Further gap-fill (continued):
+- Temporal feature front-end (`causal EMA` + `Δt`) in `TemporalFeatureFrontEnd`, wired into `SnnClassifier` and both neuromorphic runners (`--use-temporal-features`).
+- Multi-seed summarizer `benchmarks/neuromorphic/run_multi_seed.py`.
+- Sensorimotor homeostasis controller, experience buffer, sleep-replay, representation stability; synthetic runner records them in `extra`.
+- 3DCG: `weight_smoothness` (Laplacian) and `hierarchy_edit_distance` (parent-edge Jaccard).
+- Optional `src/dst_snn/eval/powermetrics.py` (macOS, best-effort).
+
+Homeostasis threshold wiring (completed):
+- `ChronoPlasticLIFCell` / `ChronoPlasticLIFLayer` accept `threshold_offset` and pass it into `NoisySpikingActivation`.
+- `HomeostasisController.tensor_offsets` / richer rate stats (`instant_rate`, deficit, min/max offset).
+- `PredictiveWorldModel` + `train_world_model_step` apply previous-step offsets then update EMA rates.
+- Synthetic sensorimotor runner uses wired homeostasis; extras include latent rates and `homeostasis_wired_to_threshold`.
+- Tests in `tests/sensorimotor/test_homeostasis_threshold.py`.
+
+DVS multi-seed + research-aligned Conv-PLIF:
+- Dense dendritic sweep: best was B hidden64 **0.102±0.017** (1/5 seeds above majority) — seed-fragile.
+- Literature (SEW-ResNet / SpikingJelly DVS): keep 2D event frames + Conv-BN-PLIF.
+- Implemented `plif.py` + `conv_snn.py` (`ConvPLIFClassifier`), dataset `mode=frames`, runner `--backbone conv-plif`.
+- Conv-PLIF multi-seed 168/96 × 5 seeds × 8 epochs: **0.333±0.020**, **5/5 above majority**, margin **+0.24**.
+- First *stable* learner in this harness (not SOTA; full-train SEW-ResNet is ~97%).
+
+Full-train pilot attempt + Frame-CNN baseline:
+- `FrameCnnClassifier` matched to Conv-PLIF topology; `--with-ann-baseline` on `conv-plif` trains it.
+- Official train download: figshare fails; Zenodo `ibmGestureTrain.tar.gz` (~2.3GB) started; not complete at pilot time.
+- Pilot `scripts/run_dvs_fulltrain_pilot.py` fell back to **smoke-large** (200/64, 12 ep, seeds 0–2):
+  - Conv-PLIF **0.380±0.053**, CNN **0.354±0.015**, both 3/3 above majority (0.094).
+  - SNN slightly higher mean accuracy; energy proxy far lower for SNN.
+- Report: `artifacts/benchmarks/dvs-fulltrain-pilot/pilot_report.md`.
 
 Not completed yet:
-- Full train-split N-MNIST/DVS runs. Current real-data smoke tests use official test split subsets to avoid multi-GB first-run downloads.
-- WebSocket transport and real hardware bridges for sensorimotor modules. Current increment is in-process plus JSONL replay and remains protocol-compatible.
+- Finish Zenodo train download and re-run pilot in full-train mode.
+- Optional SEW residual blocks / deeper Conv-PLIF.
+- Real hardware bridges (serial/USB motors, tactile).
+- Licensed SketchFab reference corpus (synthetic unit-box only).

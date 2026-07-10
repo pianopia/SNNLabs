@@ -19,6 +19,18 @@ data/threedcg/<asset_id>/
 
 `meta.json` contains fields such as `{"license": "...", "category": "...", "rigged": true}`.
 
+## Offline smoke entry
+
+Generate a synthetic, network-free unit box (not a SketchFab asset):
+
+```bash
+python scripts/build_threedcg_unit_corpus.py
+```
+
+This writes `data/threedcg/unit-box/{reference.glb,input.png,meta.json}` for
+local scorer validation. Replace with licensed references under the same layout
+for real evaluation. Note: `data/` is gitignored; regenerate after clone.
+
 ## Selection Criteria
 - License: downloadable and redistribution-compatible, recorded in `meta.json`.
 - Category balance: rigid props, organic characters, hard-surface, foliage.

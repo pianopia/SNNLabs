@@ -18,6 +18,7 @@ def test_no_skin_returns_none():
     out = skin_metrics(asset_from_trimesh(trimesh.creation.box(extents=(1, 1, 1))))
     assert out["has_skin"] == 0.0
     assert out["weight_normalization_error"] is None
+    assert out["weight_smoothness"] is None
 
 
 def test_normalized_weights():
@@ -27,6 +28,24 @@ def test_normalized_weights():
     assert abs(out["weight_normalization_error"]) < 1e-9
     assert out["max_influences"] == 2.0
     assert out["isolated_weight_ratio"] == 0.0
+    assert out["weight_smoothness"] is not None
+    assert out["weight_smoothness"] >= 0.0
+
+
+def test_smooth_weights_have_lower_laplacian_than_noisy():
+    box = asset_from_trimesh(trimesh.creation.box(extents=(1, 1, 1)))
+    n = len(box.vertices)
+    smooth = np.zeros((n, 2))
+    smooth[:, 0] = 1.0
+    noisy = np.random.default_rng(0).random((n, 2))
+    noisy = noisy / noisy.sum(axis=1, keepdims=True)
+    box.bones = ["a", "b"]
+    box.skin_weights = smooth
+    s_smooth = skin_metrics(box)["weight_smoothness"]
+    box.skin_weights = noisy
+    s_noisy = skin_metrics(box)["weight_smoothness"]
+    assert s_smooth is not None and s_noisy is not None
+    assert s_smooth < s_noisy
 
 
 def test_unnormalized_and_isolated():

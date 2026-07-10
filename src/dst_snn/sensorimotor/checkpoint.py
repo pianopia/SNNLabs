@@ -28,6 +28,7 @@ def save_world_model_checkpoint(
             "sensory_size": model.sensory_size,
             "motor_size": model.motor_size,
             "latent_size": model.latent_size,
+            "threshold": getattr(model, "base_threshold", 1.0),
         },
         "model": model.state_dict(),
         "extra": extra or {},
@@ -52,6 +53,7 @@ def load_world_model_checkpoint(
         sensory_size=int(config["sensory_size"]),
         motor_size=int(config["motor_size"]),
         latent_size=int(config["latent_size"]),
+        threshold=float(config.get("threshold", 1.0)),
     ).to(device)
     model.load_state_dict(payload["model"])
     optimizer = None

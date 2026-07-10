@@ -6,6 +6,7 @@ from torch import nn
 from src.dst_snn.eval.metrics import (
     accuracy,
     latency_percentiles,
+    majority_class_accuracy,
     model_size,
     spike_stats,
 )
@@ -15,6 +16,24 @@ def test_accuracy_counts_matching_argmax():
     preds = torch.tensor([0, 1, 2, 2])
     targets = torch.tensor([0, 1, 2, 0])
     assert accuracy(preds, targets) == 0.75
+
+
+def test_majority_class_accuracy():
+    targets = torch.tensor([0, 1, 1, 2, 1])
+    assert majority_class_accuracy(targets, num_classes=3) == 0.6
+
+
+def test_majority_class_accuracy_empty_is_zero():
+    assert majority_class_accuracy(torch.tensor([]), num_classes=3) == 0.0
+
+
+def test_majority_class_accuracy_rejects_invalid_class_count():
+    try:
+        majority_class_accuracy(torch.tensor([0]), num_classes=0)
+    except ValueError as exc:
+        assert "num_classes" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected ValueError")
 
 
 def test_latency_percentiles():

@@ -34,11 +34,16 @@ class SensorimotorRuntime:
         actions = decode_action(self.registry, motor_activity)
         self.last_action_messages = actions
         novelty = float((spikes > 0).mean())
+        spike_rate = float(spikes.mean())
+        # Fatigue rises with sustained firing and slowly recovers otherwise.
+        prev_fatigue = float(self.global_signal.get("fatigue", 0.0))
+        fatigue = min(1.0, max(0.0, prev_fatigue * 0.97 + spike_rate * 0.15 - 0.01))
+        arousal = min(1.0, spike_rate * 4.0 * (1.0 - 0.4 * fatigue))
         self.global_signal = {
-            "arousal": min(1.0, float(spikes.mean() * 4.0)),
-            "reward": novelty,
+            "arousal": arousal,
+            "reward": novelty * (1.0 - 0.5 * fatigue),
             "novelty": novelty,
-            "fatigue": 0.0,
+            "fatigue": fatigue,
         }
         self.step += 1
         global_signal = SensorimotorMessage(

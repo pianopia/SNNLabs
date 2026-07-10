@@ -4,8 +4,10 @@ import math
 
 from src.dst_snn.eval.energy import (
     EnergyModel,
+    dense_linear_mac_ops,
     dense_mac_energy_pj,
     energy_ratio,
+    estimate_snn_classifier_ops,
     snn_energy_pj,
 )
 
@@ -33,3 +35,28 @@ def test_energy_ratio_reports_efficiency_factor():
 
 def test_energy_ratio_infinite_when_snn_zero():
     assert math.isinf(energy_ratio(snn_pj=0.0, dense_pj=900.0))
+
+
+def test_dense_linear_mac_ops_scales_with_time():
+    assert dense_linear_mac_ops(10, 5, time_steps=4) == 200.0
+
+
+def test_estimate_snn_classifier_ops_includes_hidden_layers():
+    plain = estimate_snn_classifier_ops(
+        in_features=100,
+        num_classes=10,
+        time_bins=8,
+        spikes_per_inference=5.0,
+    )
+    deep = estimate_snn_classifier_ops(
+        in_features=100,
+        num_classes=10,
+        time_bins=8,
+        hidden_features=64,
+        chrono_hidden=32,
+        spikes_per_inference=5.0,
+    )
+    assert deep["dense_mac_ops"] > plain["dense_mac_ops"]
+    assert deep["layer_count"] == 3.0
+    assert plain["layer_count"] == 1.0
+    assert deep["effective_fanout"] > 0.0

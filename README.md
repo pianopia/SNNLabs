@@ -86,3 +86,31 @@ For static use, convert an existing checkpoint first:
 ```bash
 python scripts/export_dst_chat_model.py artifacts/dst-web-learner.pt
 ```
+
+## Benchmarks
+
+SNN evaluation harness and benchmark runners live under `benchmarks/`.
+See [benchmarks/README.md](benchmarks/README.md) for full usage.
+
+```bash
+pip install -r requirements-bench.txt
+# Optional 3DCG scorer deps
+pip install -r requirements-3dcg.txt
+
+# Neuromorphic (N-MNIST / DVS Gesture)
+python benchmarks/neuromorphic/run_nmnist.py --root data/nmnist --epochs 3
+python benchmarks/neuromorphic/run_dvs_gesture.py --root data/dvs-gesture --epochs 5
+
+# With dense energy + ANN quality baseline on a smoke subset
+python benchmarks/neuromorphic/run_nmnist.py \
+  --root data/nmnist --epochs 1 --limit-train 128 --limit-test 64 \
+  --smoke-from-test --with-ann-baseline
+
+# 3DCG scorer (offline unit corpus)
+python scripts/build_threedcg_unit_corpus.py
+python benchmarks/threedcg/run_score.py \
+  --reference data/threedcg/unit-box/reference.glb --convex-hull --asset-id unit-box
+
+# Synthetic sensorimotor loop
+python benchmarks/sensorimotor/run_synthetic_loop.py --steps 32
+```

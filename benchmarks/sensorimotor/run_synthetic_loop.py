@@ -28,6 +28,12 @@ from src.dst_snn.eval import (
     run_benchmarks,
     snn_energy_pj,
 )
+from src.dst_snn.sensorimotor.homeostasis import (
+    ExperienceBuffer,
+    HomeostasisController,
+    representation_stability,
+    sleep_replay,
+)
 from src.dst_snn.sensorimotor.modules import MockActuator, SyntheticSensor
 from src.dst_snn.sensorimotor.policy import IntrinsicMotorPolicy
 from src.dst_snn.sensorimotor.registry import ModuleRegistry
@@ -65,6 +71,8 @@ class SyntheticSensorimotorRunner:
         lr: float = 1e-3,
         seed: int = 0,
         device: str = "cpu",
+        replay_every: int = 8,
+        replay_steps: int = 2,
     ) -> None:
         self.steps = steps
         self.feature_size = feature_size
@@ -74,10 +82,14 @@ class SyntheticSensorimotorRunner:
         self.lr = lr
         self.seed = seed
         self.device = torch.device(device)
+        self.replay_every = replay_every
+        self.replay_steps = replay_steps
         self.runtime: SensorimotorRuntime | None = None
         self.model: PredictiveWorldModel | None = None
         self.optimizer: torch.optim.Optimizer | None = None
         self.policy: IntrinsicMotorPolicy | None = None
+        self.homeostasis: HomeostasisController | None = None
+        self.buffer: ExperienceBuffer | None = None
         self.sensor = SyntheticSensor()
         self.actuator = MockActuator()
 
@@ -93,9 +105,14 @@ class SyntheticSensorimotorRunner:
             sensory_size=self.feature_size,
             motor_size=self.motor_size,
             latent_size=self.latent_size,
+            # Lower than default 1.0 so latent codes are not silent on sparse
+            # hashed sensory spikes; homeostasis then regulates from there.
+            threshold=0.45,
         ).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
         self.policy = IntrinsicMotorPolicy(epsilon=0.25, temperature=0.5, seed=self.seed)
+        self.homeostasis = HomeostasisController(target_rate=0.08, ema_alpha=0.1, gain=2.0)
+        self.buffer = ExperienceBuffer(capacity=64)
 
     def run(self) -> RunResult:
         assert (
@@ -103,6 +120,8 @@ class SyntheticSensorimotorRunner:
             and self.model is not None
             and self.optimizer is not None
             and self.policy is not None
+            and self.homeostasis is not None
+            and self.buffer is not None
         )
         progress = LearningProgress(alpha=0.2)
         losses: list[float] = []
@@ -111,6 +130,10 @@ class SyntheticSensorimotorRunner:
         spike_counts: list[float] = []
         active_fracs: list[float] = []
         selected_commands: list[list[dict[str, str]]] = []
+        latent_trace: list[torch.Tensor] = []
+        homeo_stats: list[dict[str, float]] = []
+        replay_stats: list[dict[str, float]] = []
+        latent_rates: list[float] = []
 
         for step in range(self.steps):
             self.runtime.ingest(self.sensor.observe(step))
@@ -119,17 +142,61 @@ class SyntheticSensorimotorRunner:
             tick = self.runtime.tick(motor_activity)
             sensory = torch.from_numpy(tick["spikes"]).float().unsqueeze(0).to(self.device)
             motor = torch.from_numpy(np.tile(motor_activity, (self.time_steps, 1))).float().unsqueeze(0).to(self.device)
-            metrics = train_world_model_step(self.model, self.optimizer, sensory, motor, progress)
+            # Offsets from *previous* rates are applied inside ChronoPlastic this step.
+            metrics = train_world_model_step(
+                self.model,
+                self.optimizer,
+                sensory,
+                motor,
+                progress,
+                homeostasis=self.homeostasis,
+            )
+            with torch.no_grad():
+                # Snapshot latent with the same applied offsets for stability tracking.
+                latent = self.model(
+                    sensory,
+                    motor,
+                    homeostasis=self.homeostasis,
+                    update_homeostasis=False,
+                )["spikes"]
+            latent_trace.append(latent.detach().cpu())
+            latent_rates.append(float(metrics.get("latent_spike_rate", 0.0)))
+            homeo_stats.append(
+                {
+                    "mean_rate": metrics.get("homeo_mean_rate", 0.0),
+                    "instant_rate": metrics.get("homeo_instant_rate", 0.0),
+                    "excess_rate": metrics.get("homeo_excess_rate", 0.0),
+                    "threshold_offset": metrics.get("homeo_threshold_offset", 0.0),
+                    "applied_offset_mean": metrics.get("applied_offset_mean", 0.0),
+                }
+            )
+            salience = float(metrics.get("intrinsic_reward", 0.0)) + float(tick["global_signal"].get("novelty", 0.0))
+            self.buffer.add(sensory, motor, salience)
+            if self.replay_every > 0 and (step + 1) % self.replay_every == 0:
+                replay_stats.append(
+                    sleep_replay(
+                        self.model,
+                        self.optimizer,
+                        self.buffer,
+                        steps=self.replay_steps,
+                        device=self.device,
+                    )
+                )
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
             losses.append(metrics["prediction_loss"])
             reward = metrics.get("intrinsic_reward", 0.0)
-            rewards.append(reward)
-            self.policy.update(selected, reward)
+            # Fatigue still gates policy; threshold homeostasis already acts on spikes.
+            fatigue = float(tick["global_signal"].get("fatigue", 0.0))
+            homeo_penalty = homeo_stats[-1]["excess_rate"]
+            gated_reward = reward * (1.0 - 0.5 * fatigue) * (1.0 - min(0.5, homeo_penalty))
+            rewards.append(gated_reward)
+            self.policy.update(selected, gated_reward)
             selected_commands.append(selected)
             spike_counts.append(float(tick["spikes"].sum()))
             active_fracs.append(float((tick["spikes"] > 0).mean()))
 
         quality = _loss_reduction(losses)
+        stability = representation_stability(latent_trace)
         lat = latency_percentiles(latencies_ms)
         size = model_size(self.model)
         energy_model = EnergyModel()
@@ -157,6 +224,22 @@ class SyntheticSensorimotorRunner:
                     "losses": losses,
                     "policy_scores": self.policy.command_scores,
                     "selected_commands": selected_commands,
+                    "representation_stability": stability,
+                    "mean_threshold_offset": (
+                        sum(s["threshold_offset"] for s in homeo_stats) / max(1, len(homeo_stats))
+                    ),
+                    "final_threshold_offset": homeo_stats[-1]["threshold_offset"] if homeo_stats else 0.0,
+                    "mean_latent_spike_rate": sum(latent_rates) / max(1, len(latent_rates)),
+                    "final_latent_spike_rate": latent_rates[-1] if latent_rates else 0.0,
+                    "homeostasis_target_rate": self.homeostasis.target_rate,
+                    "replay_events": len(replay_stats),
+                    "mean_replay_loss": (
+                        sum(s["replay_loss"] for s in replay_stats) / max(1, len(replay_stats))
+                        if replay_stats
+                        else 0.0
+                    ),
+                    "final_fatigue": float(self.runtime.global_signal.get("fatigue", 0.0)),
+                    "homeostasis_wired_to_threshold": True,
                 },
             ),
             baseline=None,
@@ -166,6 +249,7 @@ class SyntheticSensorimotorRunner:
                 "time_steps": self.time_steps,
                 "latent_size": self.latent_size,
                 "seed": self.seed,
+                "replay_every": self.replay_every,
             },
         )
 
@@ -180,6 +264,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--replay-every", type=int, default=8)
+    parser.add_argument("--replay-steps", type=int, default=2)
     return parser.parse_args()
 
 
@@ -194,6 +280,8 @@ def main() -> None:
         lr=args.lr,
         seed=args.seed,
         device=args.device,
+        replay_every=args.replay_every,
+        replay_steps=args.replay_steps,
     )
     print(run_benchmarks([runner], args.out_dir)[0].to_json())
 

@@ -11,7 +11,14 @@ def _box():
 
 
 def test_score_assets_has_all_families():
-    assert set(score_assets(_box(), _box())) == {"geometry", "topology", "uv", "rig", "skin", "texture"}
+    scores = score_assets(_box(), _box())
+    assert {"geometry", "topology", "uv", "rig", "skin", "texture", "render"} <= set(scores)
+    assert "ssim" in scores["render"]
+
+
+def test_score_assets_can_skip_render():
+    scores = score_assets(_box(), _box(), include_render=False)
+    assert "render" not in scores
 
 
 def test_identical_assets_score_higher_than_dissimilar():

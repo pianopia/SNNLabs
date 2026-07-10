@@ -20,18 +20,20 @@ except ImportError as exc:  # pragma: no cover
     raise ImportError("Install PyTorch with `pip install -r requirements-dst-snn.txt`.") from exc
 
 from benchmarks.neuromorphic.classifier import SnnClassifier
-from benchmarks.neuromorphic.datasets import load_nmnist, load_nmnist_test_only
+from benchmarks.neuromorphic.datasets import dataset_targets, load_nmnist, load_nmnist_test_only
+from benchmarks.neuromorphic.energy_report import pack_snn_energy
 from src.dst_snn.eval import (
-    EnergyModel,
     MetricSet,
     RunResult,
     accuracy,
     latency_percentiles,
+    majority_class_accuracy,
     model_size,
     run_benchmarks,
-    snn_energy_pj,
     spike_stats,
 )
+from src.dst_snn.eval.baselines import DenseAnnClassifier, train_ann_classifier
+from src.dst_snn.eval.energy import dense_mac_energy_pj, EnergyModel
 
 NUM_CLASSES = 10
 
@@ -47,6 +49,32 @@ def _random_split_from_dataset(dataset, train_limit: int, test_limit: int, seed:
     generator = torch.Generator().manual_seed(seed)
     indices = torch.randperm(len(dataset), generator=generator)[:total].tolist()
     return Subset(dataset, indices[:train_limit]), Subset(dataset, indices[train_limit:total])
+
+
+def _stratified_split_from_dataset(dataset, train_limit: int, test_limit: int, seed: int) -> tuple[Subset, Subset]:
+    targets = dataset_targets(dataset)
+    if targets is None:
+        return _random_split_from_dataset(dataset, train_limit, test_limit, seed)
+
+    generator = torch.Generator().manual_seed(seed)
+    per_class: dict[int, list[int]] = {}
+    for index, target in enumerate(targets):
+        per_class.setdefault(target, []).append(index)
+
+    train_indices: list[int] = []
+    test_indices: list[int] = []
+    for label in sorted(per_class):
+        indices = per_class[label]
+        order = torch.randperm(len(indices), generator=generator).tolist()
+        shuffled = [indices[i] for i in order]
+        train_take = min(len(shuffled), max(1, round(train_limit * len(shuffled) / len(targets))))
+        test_take = min(len(shuffled) - train_take, max(1, round(test_limit * len(shuffled) / len(targets))))
+        train_indices.extend(shuffled[:train_take])
+        test_indices.extend(shuffled[train_take:train_take + test_take])
+
+    train_set = set(train_indices[:train_limit])
+    test_indices = [idx for idx in test_indices if idx not in train_set]
+    return Subset(dataset, train_indices[:train_limit]), Subset(dataset, test_indices[:test_limit])
 
 
 class NmnistRunner:
@@ -70,6 +98,14 @@ class NmnistRunner:
         readout: str = "max_membrane",
         use_chrono: bool = False,
         chrono_hidden: int = 128,
+        hidden_features: int = 0,
+        hidden_threshold: float | None = None,
+        hidden_output: str = "spikes",
+        with_ann_baseline: bool = False,
+        ann_hidden: int = 128,
+        use_temporal_features: bool = False,
+        temporal_project_to: int = 0,
+        temporal_alpha: float = 0.25,
     ) -> None:
         self.root = root
         self.epochs = epochs
@@ -86,20 +122,32 @@ class NmnistRunner:
         self.readout = readout
         self.use_chrono = use_chrono
         self.chrono_hidden = chrono_hidden
+        self.hidden_features = hidden_features
+        self.hidden_threshold = hidden_threshold
+        self.hidden_output = hidden_output
+        self.with_ann_baseline = with_ann_baseline
+        self.ann_hidden = ann_hidden
+        self.use_temporal_features = use_temporal_features
+        self.temporal_project_to = temporal_project_to
+        self.temporal_alpha = temporal_alpha
         self.model: SnnClassifier | None = None
+        self.ann_model: DenseAnnClassifier | None = None
+        self.in_features: int = 0
         self.train_loader: DataLoader | None = None
         self.test_loader: DataLoader | None = None
 
     def prepare(self) -> None:
+        torch.manual_seed(self.seed)
         if self.smoke_from_test:
             test_only, in_features = load_nmnist_test_only(self.root, time_bins=self.time_bins)
             train_limit = self.limit_train or min(128, len(test_only) // 2)
             test_limit = self.limit_test or min(128, len(test_only) - train_limit)
-            train, test = _random_split_from_dataset(test_only, train_limit, test_limit, self.seed)
+            train, test = _stratified_split_from_dataset(test_only, train_limit, test_limit, self.seed)
         else:
             train, test, in_features = load_nmnist(self.root, time_bins=self.time_bins)
             train = _maybe_subset(train, self.limit_train)
             test = _maybe_subset(test, self.limit_test)
+        self.in_features = in_features
         generator = torch.Generator().manual_seed(self.seed)
         self.train_loader = DataLoader(train, batch_size=self.batch_size, shuffle=True, generator=generator)
         self.test_loader = DataLoader(test, batch_size=self.batch_size)
@@ -112,7 +160,15 @@ class NmnistRunner:
             readout=self.readout,
             use_chrono=self.use_chrono,
             chrono_hidden=self.chrono_hidden,
+            hidden_features=self.hidden_features,
+            hidden_threshold=self.hidden_threshold,
+            hidden_output=self.hidden_output,
+            use_temporal_features=self.use_temporal_features,
+            temporal_project_to=self.temporal_project_to,
+            temporal_alpha=self.temporal_alpha,
         ).to(self.device)
+        if self.with_ann_baseline:
+            self.ann_model = DenseAnnClassifier(in_features, NUM_CLASSES, hidden=self.ann_hidden).to(self.device)
 
     def run(self) -> RunResult:
         assert self.model is not None and self.train_loader is not None and self.test_loader is not None
@@ -130,7 +186,7 @@ class NmnistRunner:
         self.model.eval()
         preds_all, targets_all = [], []
         latencies_ms: list[float] = []
-        spike_total, spike_batches = 0.0, 0
+        spike_total, active_total, spike_batches = 0.0, 0.0, 0
         with torch.no_grad():
             for x, y in self.test_loader:
                 x, y = x.to(self.device), y.to(self.device)
@@ -139,15 +195,63 @@ class NmnistRunner:
                 latencies_ms.append((time.perf_counter() - start) * 1000.0 / max(1, x.shape[0]))
                 preds_all.append(out["logits"].argmax(dim=-1))
                 targets_all.append(y)
-                spike_total += spike_stats(out["spikes"])["spikes_per_inference"]
+                stats = spike_stats(out["spikes"])
+                spike_total += stats["spikes_per_inference"]
+                active_total += stats["active_neuron_fraction"]
                 spike_batches += 1
 
         acc = accuracy(torch.cat(preds_all), torch.cat(targets_all))
+        targets = torch.cat(targets_all)
+        majority_acc = majority_class_accuracy(targets, NUM_CLASSES)
         lat = latency_percentiles(latencies_ms)
         spikes_per_inf = spike_total / max(1, spike_batches)
-        energy_model = EnergyModel()
-        fanout = NUM_CLASSES
+        active_fraction = active_total / max(1, spike_batches)
+        energy = pack_snn_energy(
+            in_features=self.in_features,
+            num_classes=NUM_CLASSES,
+            time_bins=self.time_bins,
+            spikes_per_inference=spikes_per_inf,
+            hidden_features=self.hidden_features,
+            chrono_hidden=self.chrono_hidden if self.use_chrono else 0,
+        )
         size = model_size(self.model)
+
+        baseline_quality = majority_acc
+        baseline_metric = "majority_class_accuracy"
+        baseline_energy_pj = float(energy["dense_energy_pj"])
+        baseline_source = "dense-mac proxy (same widths × time bins)"
+        baseline_params = 0
+        baseline_bytes = 0
+        baseline_extra: dict = {
+            "uniform_chance_accuracy": 1.0 / NUM_CLASSES,
+            "dense_mac_ops": energy["dense_mac_ops"],
+            "energy_ratio_dense_over_snn": energy["energy_ratio_dense_over_snn"],
+        }
+        if self.ann_model is not None and self.train_loader is not None and self.test_loader is not None:
+            train_ann_classifier(self.ann_model, self.train_loader, epochs=self.epochs, device=self.device)
+            self.ann_model.eval()
+            ann_preds, ann_targets = [], []
+            with torch.no_grad():
+                for x, y in self.test_loader:
+                    x, y = x.to(self.device), y.to(self.device)
+                    ann_preds.append(self.ann_model(x).argmax(dim=-1))
+                    ann_targets.append(y)
+            baseline_quality = accuracy(torch.cat(ann_preds), torch.cat(ann_targets))
+            baseline_metric = "ann_mlp_accuracy"
+            ann_size = model_size(self.ann_model)
+            baseline_params = ann_size["param_count"]
+            baseline_bytes = ann_size["model_bytes"]
+            ann_macs = self.ann_model.mac_ops_per_inference(self.time_bins)
+            baseline_energy_pj = dense_mac_energy_pj(ann_macs, EnergyModel())
+            baseline_source = "dense ANN MLP (mean-pool + 2-layer)"
+            baseline_extra["ann_mac_ops"] = ann_macs
+            baseline_extra["ann_hidden"] = self.ann_hidden
+            baseline_extra["energy_ratio_ann_over_snn"] = (
+                baseline_energy_pj / float(energy["energy_pj"])
+                if float(energy["energy_pj"]) > 0
+                else float("inf")
+            )
+
         return RunResult(
             benchmark=self.name,
             model="dst-snn",
@@ -157,23 +261,44 @@ class NmnistRunner:
                 latency_ms_p50=lat["p50"],
                 latency_ms_p95=lat["p95"],
                 spikes_per_inference=spikes_per_inf,
-                active_neuron_fraction=0.0,
-                energy_pj=snn_energy_pj(spikes_per_inf, fanout, energy_model),
-                energy_source=energy_model.source,
+                active_neuron_fraction=active_fraction,
+                energy_pj=float(energy["energy_pj"]),
+                energy_source=str(energy["energy_source"]),
                 param_count=size["param_count"],
                 model_bytes=size["model_bytes"],
                 extra={
                     "epochs": self.epochs,
-                    "fanout": fanout,
+                    "fanout": energy["fanout"],
+                    "dense_mac_ops": energy["dense_mac_ops"],
+                    "dense_energy_pj": energy["dense_energy_pj"],
+                    "energy_ratio_dense_over_snn": energy["energy_ratio_dense_over_snn"],
+                    "layer_count": energy["layer_count"],
                     "threshold": self.threshold,
                     "num_branches": self.num_branches,
                     "max_delay": self.max_delay,
                     "readout": self.readout,
                     "use_chrono": self.use_chrono,
                     "chrono_hidden": self.chrono_hidden,
+                    "hidden_features": self.hidden_features,
+                    "hidden_threshold": self.hidden_threshold,
+                    "hidden_output": self.hidden_output,
+                    "use_temporal_features": self.use_temporal_features,
+                    "temporal_project_to": self.temporal_project_to,
                 },
             ),
-            baseline=None,
+            baseline=MetricSet(
+                quality=baseline_quality,
+                quality_metric=baseline_metric,
+                latency_ms_p50=0.0,
+                latency_ms_p95=0.0,
+                spikes_per_inference=0.0,
+                active_neuron_fraction=0.0,
+                energy_pj=baseline_energy_pj,
+                energy_source=baseline_source,
+                param_count=baseline_params,
+                model_bytes=baseline_bytes,
+                extra=baseline_extra,
+            ),
             meta={"smoke_from_test": self.smoke_from_test, "seed": self.seed},
         )
 
@@ -196,6 +321,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--readout", choices=["spike_count", "max_membrane", "mean_membrane"], default="max_membrane")
     parser.add_argument("--use-chrono", action="store_true")
     parser.add_argument("--chrono-hidden", type=int, default=128)
+    parser.add_argument("--hidden-features", type=int, default=0)
+    parser.add_argument("--hidden-threshold", type=float, default=None)
+    parser.add_argument("--hidden-output", choices=["spikes", "membrane"], default="spikes")
+    parser.add_argument("--with-ann-baseline", action="store_true")
+    parser.add_argument("--ann-hidden", type=int, default=128)
+    parser.add_argument("--use-temporal-features", action="store_true")
+    parser.add_argument("--temporal-project-to", type=int, default=0)
+    parser.add_argument("--temporal-alpha", type=float, default=0.25)
     return parser.parse_args()
 
 
@@ -217,6 +350,14 @@ def main() -> None:
         readout=args.readout,
         use_chrono=args.use_chrono,
         chrono_hidden=args.chrono_hidden,
+        hidden_features=args.hidden_features,
+        hidden_threshold=args.hidden_threshold,
+        hidden_output=args.hidden_output,
+        with_ann_baseline=args.with_ann_baseline,
+        ann_hidden=args.ann_hidden,
+        use_temporal_features=args.use_temporal_features,
+        temporal_project_to=args.temporal_project_to,
+        temporal_alpha=args.temporal_alpha,
     )
     print(run_benchmarks([runner], args.out_dir)[0].to_json())
 
