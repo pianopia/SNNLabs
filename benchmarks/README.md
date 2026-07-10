@@ -15,6 +15,42 @@ python benchmarks/neuromorphic/run_dvs_gesture.py --root data/dvs-gesture --epoc
 The runner scripts may download datasets through `tonic`; unit tests use
 synthetic events only and do not access the network.
 
+For faster first-pass real-data smoke tests, use the official test split only
+and split it locally into tiny train/eval subsets:
+
+```bash
+python benchmarks/neuromorphic/run_nmnist.py \
+  --root data/nmnist --epochs 1 --limit-train 64 --limit-test 64 \
+  --time-bins 8 --batch-size 16 --smoke-from-test \
+  --out-dir artifacts/benchmarks/nmnist-smoke
+
+python benchmarks/neuromorphic/run_dvs_gesture.py \
+  --root data/dvs-gesture --epochs 1 --limit-train 32 --limit-test 32 \
+  --time-bins 8 --downsample 8 --batch-size 8 --smoke-from-test \
+  --out-dir artifacts/benchmarks/dvs-smoke
+```
+
+As of the July 2026 smoke run, the tonic figshare URL for DVS Gesture returned
+an AWS WAF challenge to non-browser clients. The same preprocessed archive is
+available from Zenodo record `8060604`; place `ibmGestureTest.tar.gz` under
+`data/dvs-gesture/DVSGesture/` and tonic will verify its md5 before extracting.
+
+## Synthetic Sensorimotor Loop
+
+`benchmarks/sensorimotor/run_synthetic_loop.py` runs the in-process
+sensorimotor runtime with a synthetic sensor, mock actuator, and predictive
+world model. It emits the shared `RunResult` schema and requires no hardware or
+dataset download.
+
+```bash
+pip install -r requirements-dst-snn.txt -r requirements-bench.txt
+python benchmarks/sensorimotor/run_synthetic_loop.py --steps 32
+```
+
+The quality metric is `prediction_loss_reduction`, computed from the first and
+last loss windows. Extra metrics include the loss history and mean intrinsic
+reward from the EMA learning-progress tracker.
+
 ## EDEN14 Image To 3D Construction
 
 `benchmarks/threedcg/` scores a generated 3D asset against a SketchFab reference

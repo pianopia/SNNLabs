@@ -49,6 +49,10 @@ class _MappedDataset(Dataset):
         return torch.from_numpy(tensor).float(), int(label)
 
 
+def map_tonic_dataset(base, config: SpikeDatasetConfig):
+    return _MappedDataset(base, config)
+
+
 def load_nmnist(root: str, *, time_bins: int = 24):
     import tonic
 
@@ -58,6 +62,16 @@ def load_nmnist(root: str, *, time_bins: int = 24):
     test = tonic.datasets.NMNIST(save_to=root, train=False)
     in_features = sensor[0] * sensor[1] * 2
     return _MappedDataset(train, config), _MappedDataset(test, config), in_features
+
+
+def load_nmnist_test_only(root: str, *, time_bins: int = 24):
+    import tonic
+
+    sensor = tonic.datasets.NMNIST.sensor_size
+    config = SpikeDatasetConfig(time_bins=time_bins, sensor_size=(sensor[0], sensor[1]))
+    test = tonic.datasets.NMNIST(save_to=root, train=False)
+    in_features = sensor[0] * sensor[1] * 2
+    return _MappedDataset(test, config), in_features
 
 
 def load_dvs_gesture(root: str, *, time_bins: int = 32, downsample: int = 4):
@@ -72,3 +86,16 @@ def load_dvs_gesture(root: str, *, time_bins: int = 32, downsample: int = 4):
     test = tonic.datasets.DVSGesture(save_to=root, train=False, transform=transform)
     in_features = width * height * 2
     return _MappedDataset(train, config), _MappedDataset(test, config), in_features
+
+
+def load_dvs_gesture_test_only(root: str, *, time_bins: int = 32, downsample: int = 4):
+    import tonic
+
+    sensor = tonic.datasets.DVSGesture.sensor_size
+    width = sensor[0] // downsample
+    height = sensor[1] // downsample
+    config = SpikeDatasetConfig(time_bins=time_bins, sensor_size=(width, height))
+    transform = tonic.transforms.Downsample(spatial_factor=1.0 / downsample)
+    test = tonic.datasets.DVSGesture(save_to=root, train=False, transform=transform)
+    in_features = width * height * 2
+    return _MappedDataset(test, config), in_features

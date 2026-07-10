@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 try:
     import torch
     from torch import Tensor, nn
@@ -10,6 +12,24 @@ except ImportError as exc:  # pragma: no cover
     raise ImportError("Install PyTorch with `pip install -r requirements-dst-snn.txt`.") from exc
 
 from src.dst_snn import ChronoPlasticLIFLayer
+
+
+@dataclass
+class LearningProgress:
+    """EMA-based intrinsic reward from prediction-loss improvement."""
+
+    ema_loss: float | None = None
+    alpha: float = 0.1
+
+    def update(self, loss: float) -> dict[str, float]:
+        if self.ema_loss is None:
+            self.ema_loss = float(loss)
+            return {"ema_loss": self.ema_loss, "learning_progress": 0.0, "intrinsic_reward": 0.0}
+        previous = self.ema_loss
+        self.ema_loss = (1.0 - self.alpha) * self.ema_loss + self.alpha * float(loss)
+        progress = max(0.0, previous - self.ema_loss)
+        reward = max(0.0, min(1.0, progress / max(1e-6, previous)))
+        return {"ema_loss": self.ema_loss, "learning_progress": progress, "intrinsic_reward": reward}
 
 
 class PredictiveWorldModel(nn.Module):
@@ -49,9 +69,14 @@ def train_world_model_step(
     optimizer: torch.optim.Optimizer,
     sensory: Tensor,
     motor: Tensor | None = None,
+    progress: LearningProgress | None = None,
 ) -> dict[str, float]:
     loss = model.prediction_loss(sensory, motor)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
-    return {"prediction_loss": float(loss.detach().cpu())}
+    loss_value = float(loss.detach().cpu())
+    metrics = {"prediction_loss": loss_value}
+    if progress is not None:
+        metrics.update(progress.update(loss_value))
+    return metrics

@@ -20,7 +20,7 @@ except ImportError as exc:  # pragma: no cover
     raise ImportError("Install PyTorch with `pip install -r requirements-dst-snn.txt`.") from exc
 
 from benchmarks.neuromorphic.classifier import SnnClassifier
-from benchmarks.neuromorphic.datasets import load_dvs_gesture
+from benchmarks.neuromorphic.datasets import load_dvs_gesture, load_dvs_gesture_test_only
 from benchmarks.neuromorphic.decision_latency import decision_latency_fraction
 from src.dst_snn.eval import (
     EnergyModel,
@@ -57,6 +57,7 @@ class DvsGestureRunner:
         device: str = "cpu",
         limit_train: int = 0,
         limit_test: int = 0,
+        smoke_from_test: bool = False,
     ) -> None:
         self.root = root
         self.epochs = epochs
@@ -66,14 +67,28 @@ class DvsGestureRunner:
         self.device = torch.device(device)
         self.limit_train = limit_train
         self.limit_test = limit_test
+        self.smoke_from_test = smoke_from_test
         self.model: SnnClassifier | None = None
         self.train_loader: DataLoader | None = None
         self.test_loader: DataLoader | None = None
 
     def prepare(self) -> None:
-        train, test, in_features = load_dvs_gesture(self.root, time_bins=self.time_bins, downsample=self.downsample)
-        self.train_loader = DataLoader(_maybe_subset(train, self.limit_train), batch_size=self.batch_size, shuffle=True)
-        self.test_loader = DataLoader(_maybe_subset(test, self.limit_test), batch_size=self.batch_size)
+        if self.smoke_from_test:
+            test_only, in_features = load_dvs_gesture_test_only(
+                self.root,
+                time_bins=self.time_bins,
+                downsample=self.downsample,
+            )
+            train_limit = self.limit_train or min(64, len(test_only) // 2)
+            test_limit = self.limit_test or min(64, len(test_only) - train_limit)
+            train = Subset(test_only, list(range(train_limit)))
+            test = Subset(test_only, list(range(train_limit, train_limit + test_limit)))
+        else:
+            train, test, in_features = load_dvs_gesture(self.root, time_bins=self.time_bins, downsample=self.downsample)
+            train = _maybe_subset(train, self.limit_train)
+            test = _maybe_subset(test, self.limit_test)
+        self.train_loader = DataLoader(train, batch_size=self.batch_size, shuffle=True)
+        self.test_loader = DataLoader(test, batch_size=self.batch_size)
         self.model = SnnClassifier(in_features, NUM_CLASSES).to(self.device)
 
     def run(self) -> RunResult:
@@ -130,7 +145,7 @@ class DvsGestureRunner:
                 extra={"epochs": self.epochs, "fanout": fanout, "decision_latency_fraction": decision_latency},
             ),
             baseline=None,
-            meta={"downsample": self.downsample},
+            meta={"downsample": self.downsample, "smoke_from_test": self.smoke_from_test},
         )
 
 
@@ -145,6 +160,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--limit-train", type=int, default=0)
     parser.add_argument("--limit-test", type=int, default=0)
+    parser.add_argument("--smoke-from-test", action="store_true")
     return parser.parse_args()
 
 
@@ -159,6 +175,7 @@ def main() -> None:
         device=args.device,
         limit_train=args.limit_train,
         limit_test=args.limit_test,
+        smoke_from_test=args.smoke_from_test,
     )
     print(run_benchmarks([runner], args.out_dir)[0].to_json())
 

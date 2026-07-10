@@ -23,16 +23,42 @@ Progress:
   - Predictive world model using `ChronoPlasticLIFLayer`.
   - Minimal in-process runtime loop.
   - Synthetic sensor and mock actuator modules.
+- Extended sensorimotor runtime:
+  - `global_signal` and `trace` messages emitted from runtime ticks.
+  - JSONL `read_jsonl`/`write_jsonl`/`replay_jsonl` helpers for offline module streams.
+  - Runtime `save`/`load` checkpointing for registry and loop state.
+  - EMA learning-progress tracker and intrinsic reward metric for world-model training.
+  - Usage notes in `docs/sensorimotor-runtime.md`.
+- Added an offline synthetic sensorimotor benchmark runner:
+  - `benchmarks/sensorimotor/run_synthetic_loop.py`.
+  - Uses `SyntheticSensor`, `MockActuator`, `SensorimotorRuntime`, and `PredictiveWorldModel`.
+  - Emits shared `RunResult` JSON plus benchmark report through `run_benchmarks`.
+  - Quality metric is `prediction_loss_reduction`; extras include loss history and mean intrinsic reward.
+- Added intrinsic-reward action policy and predictive-model checkpoints:
+  - `src/dst_snn/sensorimotor/policy.py` (`IntrinsicMotorPolicy`).
+  - `src/dst_snn/sensorimotor/checkpoint.py` for world-model + optimizer + learning-progress checkpoints.
+  - Synthetic sensorimotor runner now records `policy_scores` and `selected_commands`.
 
 Verification:
 - `python3 -m compileall -q src/dst_snn/eval benchmarks tests src/dst_snn/web_autonomous_learner.py` passed.
 - `python3 - <<'PY' ... from src.dst_snn.eval.result import MetricSet, RunResult ... PY` passed without PyTorch installed.
 - Created local `.venv` and installed `requirements-dst-snn.txt`, `requirements-bench.txt`, and `requirements-3dcg.txt`.
-- `. .venv/bin/activate && python -m pytest -v` passed: 60 tests.
+- `. .venv/bin/activate && python -m pytest -v` passed: 67 tests.
 - Runner import/help checks passed:
   - `python benchmarks/neuromorphic/run_nmnist.py --help`
   - `python benchmarks/neuromorphic/run_dvs_gesture.py --help`
+  - `python benchmarks/sensorimotor/run_synthetic_loop.py --help`
+- Synthetic sensorimotor runner smoke test passed:
+  - `python benchmarks/sensorimotor/run_synthetic_loop.py --steps 4 --feature-size 24 --motor-size 8 --time-steps 4 --latent-size 8 --out-dir /tmp/snnlabs-sensorimotor-bench`
+- Real-data neuromorphic smoke tests passed with `--smoke-from-test`:
+  - N-MNIST command:
+    `python benchmarks/neuromorphic/run_nmnist.py --root data/nmnist --epochs 1 --limit-train 64 --limit-test 64 --time-bins 8 --batch-size 16 --smoke-from-test --out-dir artifacts/benchmarks/nmnist-smoke`
+  - N-MNIST result: accuracy `0.484375`, p50 latency `0.4874 ms`, p95 latency `0.8208 ms`, spikes/inference `5.921875`, params `23402`.
+  - DVS Gesture command:
+    `python benchmarks/neuromorphic/run_dvs_gesture.py --root data/dvs-gesture --epochs 1 --limit-train 32 --limit-test 32 --time-bins 8 --downsample 8 --batch-size 8 --smoke-from-test --out-dir artifacts/benchmarks/dvs-smoke`
+  - DVS Gesture result: accuracy `0.0625`, decision latency fraction `0.9140625`, p50 latency `0.1215 ms`, p95 latency `0.1307 ms`, spikes/inference `4.40625`, params `5915`.
+  - DVS note: tonic's figshare URL returned an AWS WAF challenge; downloaded the md5-identical `ibmGestureTest.tar.gz` from Zenodo record `8060604`, then tonic verified and extracted it.
 
 Not completed yet:
-- Real N-MNIST/DVS runner smoke tests, which may download datasets through `tonic`.
-- Real hardware/WebSocket transport for sensorimotor modules. Current increment is in-process and protocol-compatible.
+- Full train-split N-MNIST/DVS runs. Current real-data smoke tests use official test split subsets to avoid multi-GB first-run downloads.
+- WebSocket transport and real hardware bridges for sensorimotor modules. Current increment is in-process plus JSONL replay and remains protocol-compatible.

@@ -22,9 +22,13 @@ class SnnClassifier(nn.Module):
         chrono_hidden: int = 128,
         threshold: float = 0.85,
         learnable_delay: bool = True,
+        readout: str = "spike_count",
     ) -> None:
         super().__init__()
+        if readout not in {"spike_count", "max_membrane", "mean_membrane"}:
+            raise ValueError("readout must be one of: spike_count, max_membrane, mean_membrane")
         self.use_chrono = use_chrono
+        self.readout = readout
         if use_chrono:
             self.front: nn.Module | None = ChronoPlasticLIFLayer(in_features, chrono_hidden)
             backbone_in = chrono_hidden
@@ -44,8 +48,14 @@ class SnnClassifier(nn.Module):
         if self.front is not None:
             x = self.front(x)["spikes"]
         out = self.backbone(x)
+        if self.readout == "max_membrane":
+            logits = out["membrane"].amax(dim=1)
+        elif self.readout == "mean_membrane":
+            logits = out["membrane"].mean(dim=1)
+        else:
+            logits = out["spike_count"]
         return {
-            "logits": out["spike_count"],
+            "logits": logits,
             "spikes": out["spikes"],
             "membrane": out["membrane"],
         }

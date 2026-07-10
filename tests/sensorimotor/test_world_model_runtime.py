@@ -6,7 +6,11 @@ import torch
 from src.dst_snn.sensorimotor.modules import MockActuator, SyntheticSensor
 from src.dst_snn.sensorimotor.registry import ModuleRegistry
 from src.dst_snn.sensorimotor.runtime import SensorimotorRuntime
-from src.dst_snn.sensorimotor.world_model import PredictiveWorldModel, train_world_model_step
+from src.dst_snn.sensorimotor.world_model import (
+    LearningProgress,
+    PredictiveWorldModel,
+    train_world_model_step,
+)
 
 
 def test_world_model_forward_and_train_step():
@@ -19,6 +23,17 @@ def test_world_model_forward_and_train_step():
     assert out["motor_logits"].shape == (2, 5, 4)
     metrics = train_world_model_step(model, optimizer, sensory, motor)
     assert metrics["prediction_loss"] > 0
+
+
+def test_learning_progress_intrinsic_reward():
+    progress = LearningProgress(alpha=0.5)
+    first = progress.update(1.0)
+    second = progress.update(0.5)
+    third = progress.update(0.8)
+    assert first["intrinsic_reward"] == 0.0
+    assert second["learning_progress"] > 0.0
+    assert second["intrinsic_reward"] > 0.0
+    assert third["intrinsic_reward"] == 0.0
 
 
 def test_runtime_tick_decodes_mock_action():
