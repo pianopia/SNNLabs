@@ -130,11 +130,19 @@ def _write_summary_md(path: Path, summary: dict, results: list[RunResult]) -> No
 
 
 def parse_args() -> argparse.Namespace:
+    from benchmarks.neuromorphic.recipes import recipe_names
+
     p = argparse.ArgumentParser()
     p.add_argument("--benchmark", choices=["n-mnist", "dvs-gesture"], default="n-mnist")
     p.add_argument("--seeds", default="0,1,2")
     p.add_argument("--out-dir", type=Path, default=Path("artifacts/benchmarks/multi-seed"))
     p.add_argument("--root", default=None)
+    p.add_argument(
+        "--recipe",
+        default=None,
+        choices=recipe_names(),
+        help="DVS controlled recipe (ignored for n-mnist). Explicit flags override.",
+    )
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--time-bins", type=int, default=12)
@@ -158,6 +166,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-delay", type=int, default=16)
     p.add_argument("--backbone", choices=["dendritic", "conv-plif", "sew-plif"], default="dendritic")
     p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--lr-schedule", choices=["constant", "cosine"], default="constant")
     p.add_argument("--sew-width", type=int, default=32)
     p.add_argument("--sew-blocks", type=int, default=2)
     p.add_argument("--tag", default="", help="Optional label stored in summary config")
@@ -165,32 +174,55 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    from benchmarks.neuromorphic.recipes import merge_recipe_with_cli
+
     args = parse_args()
     seeds = _parse_seeds(args.seeds)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     results: list[RunResult] = []
+
+    dvs_cfg = merge_recipe_with_cli(
+        args.recipe if args.benchmark == "dvs-gesture" else None,
+        {
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "time_bins": args.time_bins,
+            "downsample": args.downsample,
+            "limit_train": args.limit_train,
+            "limit_test": args.limit_test,
+            "smoke_from_test": args.smoke_from_test,
+            "threshold": args.threshold,
+            "readout": args.readout,
+            "lr": args.lr,
+            "lr_schedule": args.lr_schedule,
+        },
+    )
+
     config = {
         "tag": args.tag or out_dir.name,
         "benchmark": args.benchmark,
-        "epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "time_bins": args.time_bins,
-        "limit_train": args.limit_train,
-        "limit_test": args.limit_test,
-        "smoke_from_test": args.smoke_from_test,
-        "threshold": args.threshold,
+        "recipe": dvs_cfg.get("recipe"),
+        "recipe_description": dvs_cfg.get("recipe_description"),
+        "epochs": int(dvs_cfg["epochs"]) if args.benchmark == "dvs-gesture" else args.epochs,
+        "batch_size": int(dvs_cfg["batch_size"]) if args.benchmark == "dvs-gesture" else args.batch_size,
+        "time_bins": int(dvs_cfg["time_bins"]) if args.benchmark == "dvs-gesture" else args.time_bins,
+        "limit_train": int(dvs_cfg["limit_train"]) if args.benchmark == "dvs-gesture" else args.limit_train,
+        "limit_test": int(dvs_cfg["limit_test"]) if args.benchmark == "dvs-gesture" else args.limit_test,
+        "smoke_from_test": bool(dvs_cfg["smoke_from_test"]) if args.benchmark == "dvs-gesture" else args.smoke_from_test,
+        "threshold": float(dvs_cfg["threshold"]) if args.benchmark == "dvs-gesture" else args.threshold,
         "hidden_features": args.hidden_features,
         "hidden_threshold": args.hidden_threshold,
         "hidden_output": args.hidden_output,
-        "readout": args.readout,
+        "readout": str(dvs_cfg["readout"]) if args.benchmark == "dvs-gesture" else args.readout,
         "use_temporal_features": args.use_temporal_features,
         "temporal_project_to": args.temporal_project_to,
         "use_chrono": args.use_chrono,
         "chrono_hidden": args.chrono_hidden,
-        "downsample": args.downsample if args.benchmark == "dvs-gesture" else None,
+        "downsample": int(dvs_cfg["downsample"]) if args.benchmark == "dvs-gesture" else None,
         "backbone": args.backbone if args.benchmark == "dvs-gesture" else "dendritic",
-        "lr": args.lr,
+        "lr": float(dvs_cfg["lr"]) if args.benchmark == "dvs-gesture" else args.lr,
+        "lr_schedule": str(dvs_cfg["lr_schedule"]) if args.benchmark == "dvs-gesture" else None,
         "seeds": seeds,
     }
     (out_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -227,19 +259,19 @@ def main() -> None:
             root = args.root or "data/dvs-gesture"
             runner = DvsGestureRunner(
                 root,
-                epochs=args.epochs,
-                batch_size=args.batch_size,
-                time_bins=args.time_bins,
-                downsample=args.downsample,
+                epochs=int(dvs_cfg["epochs"]),
+                batch_size=int(dvs_cfg["batch_size"]),
+                time_bins=int(dvs_cfg["time_bins"]),
+                downsample=int(dvs_cfg["downsample"]),
                 device=args.device,
-                limit_train=args.limit_train,
-                limit_test=args.limit_test,
-                smoke_from_test=args.smoke_from_test,
+                limit_train=int(dvs_cfg["limit_train"]),
+                limit_test=int(dvs_cfg["limit_test"]),
+                smoke_from_test=bool(dvs_cfg["smoke_from_test"]),
                 seed=seed,
-                threshold=args.threshold,
+                threshold=float(dvs_cfg["threshold"]),
                 num_branches=args.num_branches,
                 max_delay=args.max_delay,
-                readout=args.readout,
+                readout=str(dvs_cfg["readout"]),
                 use_chrono=args.use_chrono,
                 chrono_hidden=args.chrono_hidden,
                 hidden_features=args.hidden_features,
@@ -249,9 +281,10 @@ def main() -> None:
                 temporal_project_to=args.temporal_project_to,
                 temporal_alpha=args.temporal_alpha,
                 backbone=args.backbone,
-                lr=args.lr,
+                lr=float(dvs_cfg["lr"]),
                 sew_width=args.sew_width,
                 sew_blocks=args.sew_blocks,
+                lr_schedule=str(dvs_cfg["lr_schedule"]),
             )
         runner.prepare()
         result = runner.run()

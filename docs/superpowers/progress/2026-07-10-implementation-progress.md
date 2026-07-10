@@ -127,8 +127,49 @@ Full-train pilot attempt + Frame-CNN baseline:
   - SNN slightly higher mean accuracy; energy proxy far lower for SNN.
 - Report: `artifacts/benchmarks/dvs-fulltrain-pilot/pilot_report.md`.
 
-Not completed yet:
-- Finish Zenodo train download and re-run pilot in full-train mode.
-- Optional SEW residual blocks / deeper Conv-PLIF.
-- Real hardware bridges (serial/USB motors, tactile).
-- Licensed SketchFab reference corpus (synthetic unit-box only).
+Milestone freeze + Phase 0 closeout plan:
+- Snapshot: `docs/superpowers/progress/2026-07-10-milestone-snapshot.md`
+- Next plan: `docs/superpowers/plans/2026-07-10-phase0-closeout-dvs-training.md`
+- Full-train DVS results frozen: Conv-PLIF **0.447±0.020**, SEW **0.490±0.020**, CNN-parity (see `artifacts/benchmarks/dvs-fulltrain-sew/`).
+- Closeout implementation: shared `spatial_ops` MAC estimator, fair energy accounting string, cosine LR option on DVS runner.
+
+Sensorimotor closed-loop claim metrics (post-closeout, 2026-07-10):
+- True closed loop: `SyntheticSensor.apply_motor` + `MockActuator.on_command` so actions shift sensor phase.
+- Representation probes: `src/dst_snn/sensorimotor/probe.py` (linear probe, nearest centroid, k-means purity).
+- ANN predictive baseline: `DenseAnnPredictor` + `--with-ann-baseline` on synthetic runner.
+- Fair energy packing on sensorimotor: SNN AC vs dense MAC proxy; ANN MAC energy in `baseline`.
+- Runner extras: `closed_loop`, `phase_shift_range`, `linear_probe_accuracy`, `cluster_purity`, `energy_accounting`.
+- Tests: probe, closed-loop sensor, ann predictor, runner with ANN baseline.
+
+DVS controlled recipes (closeout plan Goal remainder, 2026-07-10):
+- `benchmarks/neuromorphic/recipes.py`: named presets `parity-ds8`, `hires-ds4`, `hires-smoke`, `smoke-spatial`.
+- Wired as `--recipe` on `run_dvs_gesture.py` and `run_multi_seed.py` (explicit CLI flags override).
+- `hires-ds4` = higher spatial resolution preset (ds=4, cosine LR) from closeout plan goal.
+- Energy model config-file override: `EnergyModel.from_json_file` / `from_mapping` (design §1).
+- Tests: `tests/neuromorphic/test_recipes.py`, `tests/eval/test_energy_config.py`.
+
+LLM baseline interface (Phase 0 design remainder, 2026-07-10):
+- Optional eval interface (not product path): `src/dst_snn/eval/baselines/llm_backend.py`,
+  `llm_classifier.py`, `benchmarks/neuromorphic/llm_baseline_util.py`.
+- Scripted/majority offline backends for CI; opt-in `http` OpenAI-compatible chat.
+- N-MNIST / DVS: `--with-llm-baseline`, `--llm-backend`, `--llm-max-samples`.
+- Energy accounting `llm_api_external_v1` / `llm_token_proxy_v1` — not comparable to AC/MAC.
+- Plan: `docs/superpowers/plans/2026-07-10-llm-baseline-interface.md`.
+- Tests: `tests/eval/test_llm_baseline.py`.
+
+Remainder closeout (2026-07-10 continued) — **completed**:
+- Hires full-train freeze: `artifacts/benchmarks/dvs-hires-fulltrain/`
+  - conv-plif hires-ds4 seeds 0–2: **SNN 0.537±0.039**, CNN mean 0.342, 3/3 > majority (wall ~39 min).
+- HW bridges: `SerialMotorBridge` / `SerialTactileSensor` + `MockSerialPort` (tests offline; pyserial optional).
+- 3DCG corpus: `scripts/build_threedcg_corpus.py` → 5 synthetic assets + `catalog.json`.
+- 3DCG generators: `benchmarks/threedcg/generator.py` + `--generator` on `run_score.py`.
+- EDEN bridge: `src/dst_snn/sensorimotor/eden_bridge.py` + `EDEN/src/snn/sensorimotorBridge.ts`.
+- LLM multi-seed: `artifacts/benchmarks/llm-baseline-multiseed/`
+  - scripted majority: 0.100±0.000 (seeds 0–2, n=32)
+  - HTTP sample seed0 n=6: quality 0.167, p50 ~903 ms
+- Plan: `docs/superpowers/plans/2026-07-10-remainder-closeout.md`.
+
+External drop-ins only (layout/code ready, not repo content):
+- Licensed SketchFab GLBs under `data/threedcg/<id>/`.
+- Live serial devices.
+- Full SNN image→3D Track 1/2 (beyond scaffold generators).

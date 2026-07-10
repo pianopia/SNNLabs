@@ -24,6 +24,10 @@ sensorimotor design in `docs/superpowers/specs/2026-07-09-embodied-sensorimotor-
 - Runtime checkpoint save/load.
 - Predictive world-model checkpoint save/load.
 - Synthetic sensor and mock actuator for headless tests.
+- Serial / USB motor + tactile bridges (`SerialMotorBridge`, `SerialTactileSensor`)
+  with `MockSerialPort` for offline tests (optional `pyserial` for real ports).
+- EDEN ↔ Python bridge (`eden_bridge.py` + `EDEN/src/snn/sensorimotorBridge.ts`)
+  mapping body / global_signal / spike events onto the shared protocol.
 
 ## Minimal Example
 
@@ -133,6 +137,58 @@ runtime.ingest(sensor.register())
 runtime.ingest(sensor.observe())
 ```
 
+## Serial / USB hardware bridges
+
+Offline by default via `MockSerialPort`. Real ports need `pip install pyserial`.
+
+```python
+from src.dst_snn.sensorimotor.modules import (
+    MockSerialPort,
+    SerialMotorBridge,
+    SerialTactileSensor,
+)
+from src.dst_snn.sensorimotor.protocol import SensorimotorMessage
+
+port = MockSerialPort()
+motor = SerialMotorBridge(n_channels=4)
+motor.attach(port)
+motor.on_action(SensorimotorMessage(type="action", id="core", payload={"values": [0.1, 0, 0, 0]}))
+
+tactile = SerialTactileSensor(n_taxels=8)
+tactile.attach(port)
+tactile.inject_raw_json({"type": "tactile", "values": [0.0] * 8})
+obs = tactile.poll()  # → observation message
+```
+
+JSONL wire format for motors: `{"type":"motor","channels":[...],"ts":...}`.
+Binary mode (`binary=True`) packs little-endian float32 channels.
+
+## EDEN ↔ Python bridge
+
+Python:
+
+```python
+from src.dst_snn.sensorimotor.eden_bridge import EdenBridgeSession
+
+session = EdenBridgeSession()
+runtime.ingest(session.register())
+for msg in session.ingest_events([{"kind": "body", "meta": {"gait_drive": 0.4}}]):
+    runtime.ingest(msg)
+```
+
+TypeScript client (`EDEN/src/snn/sensorimotorBridge.ts`):
+
+```ts
+import { SensorimotorBridge } from './snn/sensorimotorBridge';
+
+const bridge = new SensorimotorBridge('ws://127.0.0.1:8766');
+bridge.connect();
+bridge.sendEvents([{ kind: 'body', meta: { gait_drive: 0.4 } }]);
+```
+
+Serve the Python core with `serve_runtime(runtime, port=8766)` (requires
+`websockets`).
+
 ## Homeostasis and sleep replay
 
 Homeostatic offsets are **wired into ChronoPlastic thresholds**:
@@ -173,6 +229,36 @@ out = model(sensory, motor, threshold_offset=offset)
 The synthetic sensorimotor benchmark records representation stability, latent
 spike rate, applied threshold offset, replay events, and fatigue in
 `MetricSet.extra` (`homeostasis_wired_to_threshold: true`).
+
+## Closed-loop synthetic world
+
+`SyntheticSensor` exposes a discrete `phase_bin` ground-truth label. Motor
+commands from `MockActuator` shift the sensor phase when wired with
+`on_command=sensor.apply_motor` (the synthetic runner does this by default).
+
+```python
+from src.dst_snn.sensorimotor.modules import MockActuator, SyntheticSensor
+
+sensor = SyntheticSensor()
+actuator = MockActuator(on_command=sensor.apply_motor)
+# after runtime.tick(...): actuator.handle(action_message)
+```
+
+## Representation probes (design B-7)
+
+```python
+from src.dst_snn.sensorimotor.probe import (
+    cluster_purity,
+    linear_probe_accuracy,
+    nearest_centroid_accuracy,
+)
+
+probe = linear_probe_accuracy(latent_vectors, phase_bins, seed=0)
+purity = cluster_purity(latent_vectors, phase_bins, seed=0)
+```
+
+The synthetic runner records these under `MetricSet.extra` together with
+dense-MAC energy proxies and optional ANN predictor baseline metrics.
 
 ## Still Deferred
 

@@ -136,4 +136,6 @@ LLM 系方策を **品質・レイテンシ・エネルギー** の3軸で比較
 
 - SketchFab 参照コーパスの具体的選定(ライセンス・カテゴリ・リグ有無の分布)は
   `benchmarks/threedcg/corpus.md` で別途詰める。
-- 対LLM ベースラインで使う具体的 LLM/API は実装計画時に決定。
+- 対LLM ベースライン: インターフェースは `src/dst_snn/eval/baselines/llm_*.py`
+  (scripted 既定 + OpenAI 互換 HTTP 任意)。実 API の multi-seed 数値凍結と
+  3DCG 向け LLM→Blender エージェントは後続。

@@ -9,6 +9,9 @@ and are configurable; the source string is recorded in results.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
+from typing import Any, Mapping, Union
 
 
 @dataclass(frozen=True)
@@ -16,6 +19,35 @@ class EnergyModel:
     mac_pj: float = 0.9
     ac_pj: float = 0.1
     source: str = "45nm defaults (Horowitz ISSCC 2014); configurable"
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> "EnergyModel":
+        """Build from a dict (e.g. JSON). Unknown keys are ignored."""
+        mac = float(data["mac_pj"]) if "mac_pj" in data else 0.9
+        ac = float(data["ac_pj"]) if "ac_pj" in data else 0.1
+        source = str(data["source"]) if "source" in data else (
+            f"config override (mac_pj={mac}, ac_pj={ac})"
+        )
+        if mac < 0 or ac < 0:
+            raise ValueError("mac_pj and ac_pj must be non-negative")
+        return cls(mac_pj=mac, ac_pj=ac, source=source)
+
+    @classmethod
+    def from_json_file(cls, path: Union[str, Path]) -> "EnergyModel":
+        """Load energy constants from a JSON file (design: config-file override)."""
+        text = Path(path).read_text(encoding="utf-8")
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise ValueError("energy config JSON must be an object")
+        model = cls.from_mapping(data)
+        # Prefer file path in source if caller did not set one.
+        if "source" not in data:
+            return cls(
+                mac_pj=model.mac_pj,
+                ac_pj=model.ac_pj,
+                source=f"config file: {Path(path).as_posix()}",
+            )
+        return model
 
 
 def snn_energy_pj(total_spikes: float, fanout: int, model: EnergyModel) -> float:

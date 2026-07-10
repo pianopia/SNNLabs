@@ -21,15 +21,32 @@ data/threedcg/<asset_id>/
 
 ## Offline smoke entry
 
-Generate a synthetic, network-free unit box (not a SketchFab asset):
+Generate a synthetic, network-free multi-asset catalog (not SketchFab content):
 
 ```bash
+# Single unit box (legacy):
 python scripts/build_threedcg_unit_corpus.py
+
+# Full synthetic catalog (rigid / organic / hard-surface / character / foliage):
+python scripts/build_threedcg_corpus.py
 ```
 
-This writes `data/threedcg/unit-box/{reference.glb,input.png,meta.json}` for
-local scorer validation. Replace with licensed references under the same layout
-for real evaluation. Note: `data/` is gitignored; regenerate after clone.
+This writes `data/threedcg/<asset_id>/{reference.glb,input.png,meta.json}` plus
+`data/threedcg/catalog.json` for local scorer + generator validation. Drop
+**licensed** SketchFab (or other) references into the same layout when
+available; set `meta.json` `license` accordingly. Note: `data/` is gitignored;
+regenerate after clone.
+
+### Built-in generators (not full SNN image→3D)
+
+```bash
+python benchmarks/threedcg/run_score.py \
+  --reference data/threedcg/unit-box/reference.glb \
+  --generator primitive_fit --asset-id unit-box
+```
+
+Kinds: `convex_hull`, `primitive_fit`, `voxel_occupancy` (see
+`benchmarks/threedcg/generator.py`).
 
 ## Selection Criteria
 - License: downloadable and redistribution-compatible, recorded in `meta.json`.

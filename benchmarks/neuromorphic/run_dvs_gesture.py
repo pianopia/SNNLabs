@@ -37,6 +37,8 @@ from src.dst_snn.eval import (
 from src.dst_snn.eval.baselines import (
     DenseAnnClassifier,
     FrameCnnClassifier,
+    estimate_sew_macs,
+    estimate_three_stage_conv_macs,
     train_ann_classifier,
     train_frame_cnn,
 )
@@ -111,6 +113,9 @@ class DvsGestureRunner:
         hidden_output: str = "spikes",
         with_ann_baseline: bool = False,
         ann_hidden: int = 128,
+        with_llm_baseline: bool = False,
+        llm_backend: str = "scripted",
+        llm_max_samples: int = 0,
         use_temporal_features: bool = False,
         temporal_project_to: int = 0,
         temporal_alpha: float = 0.25,
@@ -119,9 +124,12 @@ class DvsGestureRunner:
         plif_channels: tuple[int, int, int] = (32, 64, 64),
         sew_width: int = 32,
         sew_blocks: int = 2,
+        lr_schedule: str = "constant",
     ) -> None:
         if backbone not in {"dendritic", "conv-plif", "sew-plif"}:
             raise ValueError("backbone must be 'dendritic', 'conv-plif', or 'sew-plif'")
+        if lr_schedule not in {"constant", "cosine"}:
+            raise ValueError("lr_schedule must be 'constant' or 'cosine'")
         self.root = root
         self.epochs = epochs
         self.batch_size = batch_size
@@ -143,6 +151,9 @@ class DvsGestureRunner:
         self.hidden_output = hidden_output
         self.with_ann_baseline = with_ann_baseline
         self.ann_hidden = ann_hidden
+        self.with_llm_baseline = with_llm_baseline
+        self.llm_backend = llm_backend
+        self.llm_max_samples = llm_max_samples
         self.use_temporal_features = use_temporal_features
         self.temporal_project_to = temporal_project_to
         self.temporal_alpha = temporal_alpha
@@ -151,6 +162,7 @@ class DvsGestureRunner:
         self.plif_channels = plif_channels
         self.sew_width = sew_width
         self.sew_blocks = sew_blocks
+        self.lr_schedule = lr_schedule
         self.model: nn.Module | None = None
         self.ann_model: DenseAnnClassifier | None = None
         self.cnn_model: FrameCnnClassifier | None = None
@@ -242,6 +254,9 @@ class DvsGestureRunner:
     def run(self) -> RunResult:
         assert self.model is not None and self.train_loader is not None and self.test_loader is not None
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        scheduler = None
+        if self.lr_schedule == "cosine" and self.epochs > 0:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.epochs)
         self.model.train()
         for _ in range(self.epochs):
             for x, y in self.train_loader:
@@ -251,6 +266,8 @@ class DvsGestureRunner:
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
 
         self.model.eval()
         preds_all, targets_all = [], []
@@ -279,31 +296,34 @@ class DvsGestureRunner:
         active_fraction = active_total / max(1, spike_batches)
         decision_latency = sum(latency_fracs) / max(1, len(latency_fracs))
         if self.backbone in {"conv-plif", "sew-plif"}:
-            # Rough AC proxy: feature spikes × channel fanout of the readout.
+            # Spike AC energy + dense MAC proxy from shared spatial_ops (fair vs Frame-CNN).
             energy_model = EnergyModel()
             fanout = int(getattr(self.model, "out_channels", NUM_CLASSES))
             snn_pj = snn_energy_pj(spikes_per_inf, fanout, energy_model)
-            # Dense MAC proxy: order-of-magnitude over spatial frames × T.
-            side = max(1, int((self.in_features / 2) ** 0.5))
+            h, w = self.spatial_hw
             if self.backbone == "sew-plif":
-                w = self.sew_width
-                dense_macs = float(self.time_bins) * (
-                    2 * w * 9 * side * side
-                    + w * w * 9 * side * side * self.sew_blocks * 2
-                    + w * w * 9 * (side // 2) * (side // 2) * self.sew_blocks * 2
-                    + w * (2 * w) * 9 * (side // 4) * (side // 4)
-                    + (2 * w) * (2 * w) * 9 * (side // 4) * (side // 4) * self.sew_blocks * 2
-                    + (2 * w) * NUM_CLASSES
+                dense_macs = estimate_sew_macs(
+                    in_channels=2,
+                    width=self.sew_width,
+                    blocks_per_stage=self.sew_blocks,
+                    height=h,
+                    width_px=w,
+                    time_bins=self.time_bins,
+                    num_classes=NUM_CLASSES,
                 )
                 layer_count = float(1 + self.sew_blocks * 3 + 1)
+                energy_accounting = "sew_vs_shallow_cnn_proxy_v1"
             else:
-                dense_macs = float(self.time_bins) * (
-                    2 * 32 * 9 * side * side
-                    + 32 * 64 * 9 * (side // 2) * (side // 2)
-                    + 64 * 64 * 9 * (side // 4) * (side // 4)
-                    + 64 * NUM_CLASSES
+                dense_macs = estimate_three_stage_conv_macs(
+                    in_channels=2,
+                    channels=self.plif_channels,
+                    height=h,
+                    width=w,
+                    time_bins=self.time_bins,
+                    num_classes=NUM_CLASSES,
                 )
                 layer_count = 3.0
+                energy_accounting = "shared_spatial_mac_proxy_v1"
             dense_pj = dense_mac_energy_pj(dense_macs, energy_model)
             energy = {
                 "energy_pj": snn_pj,
@@ -313,16 +333,20 @@ class DvsGestureRunner:
                 "dense_energy_pj": dense_pj,
                 "energy_ratio_dense_over_snn": energy_ratio(snn_pj, dense_pj),
                 "layer_count": layer_count,
+                "energy_accounting": energy_accounting,
             }
         else:
-            energy = pack_snn_energy(
-                in_features=self.in_features,
-                num_classes=NUM_CLASSES,
-                time_bins=self.time_bins,
-                spikes_per_inference=spikes_per_inf,
-                hidden_features=self.hidden_features,
-                chrono_hidden=self.chrono_hidden if self.use_chrono else 0,
+            energy = dict(
+                pack_snn_energy(
+                    in_features=self.in_features,
+                    num_classes=NUM_CLASSES,
+                    time_bins=self.time_bins,
+                    spikes_per_inference=spikes_per_inf,
+                    hidden_features=self.hidden_features,
+                    chrono_hidden=self.chrono_hidden if self.use_chrono else 0,
+                )
             )
+            energy["energy_accounting"] = "dense_linear_proxy_v1"
         size = model_size(self.model)
 
         baseline_quality = majority_acc
@@ -378,15 +402,92 @@ class DvsGestureRunner:
             h, w = self.spatial_hw
             cnn_macs = self.cnn_model.mac_ops_per_inference(self.time_bins, h, w)
             baseline_energy_pj = dense_mac_energy_pj(cnn_macs, EnergyModel())
-            baseline_source = "frame CNN (matched Conv-PLIF topology, ReLU)"
+            baseline_source = "frame CNN (matched spatial topology, ReLU)"
             baseline_extra["cnn_mac_ops"] = cnn_macs
             baseline_extra["cnn_channels"] = list(self.cnn_model.channels)
             baseline_extra["majority_class_accuracy"] = majority_acc
+            baseline_extra["energy_accounting"] = energy.get(
+                "energy_accounting", "shared_spatial_mac_proxy_v1"
+            )
+            baseline_extra["snn_dense_proxy_mac_ops"] = energy.get("dense_mac_ops")
+            if self.backbone == "conv-plif":
+                # Matched topology: Frame-CNN MAC count must equal SNN dense proxy.
+                if abs(float(cnn_macs) - float(energy["dense_mac_ops"])) > 1.0:
+                    raise RuntimeError(
+                        f"energy accounting mismatch: cnn_macs={cnn_macs} "
+                        f"dense_mac_ops={energy['dense_mac_ops']}"
+                    )
             baseline_extra["energy_ratio_cnn_over_snn"] = (
                 baseline_energy_pj / float(energy["energy_pj"])
                 if float(energy["energy_pj"]) > 0
                 else float("inf")
             )
+
+        baseline = MetricSet(
+            quality=baseline_quality,
+            quality_metric=baseline_metric,
+            latency_ms_p50=0.0,
+            latency_ms_p95=0.0,
+            spikes_per_inference=0.0,
+            active_neuron_fraction=0.0,
+            energy_pj=baseline_energy_pj,
+            energy_source=baseline_source,
+            param_count=baseline_params,
+            model_bytes=baseline_bytes,
+            extra=baseline_extra,
+        )
+        metrics_extra: dict = {
+            "epochs": self.epochs,
+            "backbone": self.backbone,
+            "fanout": energy["fanout"],
+            "dense_mac_ops": energy["dense_mac_ops"],
+            "dense_energy_pj": energy["dense_energy_pj"],
+            "energy_ratio_dense_over_snn": energy["energy_ratio_dense_over_snn"],
+            "layer_count": energy["layer_count"],
+            "decision_latency_fraction": decision_latency,
+            "threshold": self.threshold,
+            "num_branches": self.num_branches,
+            "max_delay": self.max_delay,
+            "readout": self.readout,
+            "use_chrono": self.use_chrono,
+            "chrono_hidden": self.chrono_hidden,
+            "hidden_features": self.hidden_features,
+            "hidden_threshold": self.hidden_threshold,
+            "hidden_output": self.hidden_output,
+            "use_temporal_features": self.use_temporal_features,
+            "temporal_project_to": self.temporal_project_to,
+            "lr": self.lr,
+            "plif_channels": list(self.plif_channels),
+            "sew_width": self.sew_width,
+            "sew_blocks": self.sew_blocks,
+            "lr_schedule": self.lr_schedule,
+            "energy_accounting": energy.get("energy_accounting"),
+            "final_lr": float(optimizer.param_groups[0]["lr"]),
+        }
+        metrics_extra["majority_class_accuracy"] = majority_acc
+        if self.with_llm_baseline and self.test_loader is not None:
+            from benchmarks.neuromorphic.llm_baseline_util import (
+                attach_llm_to_result,
+                dvs_class_names,
+                run_llm_baseline,
+            )
+
+            majority_class = int(targets.mode().values.item()) if targets.numel() else 0
+            llm_metrics = run_llm_baseline(
+                self.test_loader,
+                num_classes=NUM_CLASSES,
+                class_names=dvs_class_names(),
+                backend_kind=self.llm_backend,
+                majority_class=majority_class,
+                max_samples=self.llm_max_samples,
+            )
+            had_ann = self.ann_model is not None or self.cnn_model is not None
+            baseline, llm_patch = attach_llm_to_result(
+                llm_metrics=llm_metrics,
+                primary_baseline=baseline,
+                had_ann_or_cnn=had_ann,
+            )
+            metrics_extra.update(llm_patch)
 
         return RunResult(
             benchmark=self.name,
@@ -405,58 +506,37 @@ class DvsGestureRunner:
                 energy_source=str(energy["energy_source"]),
                 param_count=size["param_count"],
                 model_bytes=size["model_bytes"],
-                extra={
-                    "epochs": self.epochs,
-                    "backbone": self.backbone,
-                    "fanout": energy["fanout"],
-                    "dense_mac_ops": energy["dense_mac_ops"],
-                    "dense_energy_pj": energy["dense_energy_pj"],
-                    "energy_ratio_dense_over_snn": energy["energy_ratio_dense_over_snn"],
-                    "layer_count": energy["layer_count"],
-                    "decision_latency_fraction": decision_latency,
-                    "threshold": self.threshold,
-                    "num_branches": self.num_branches,
-                    "max_delay": self.max_delay,
-                    "readout": self.readout,
-                    "use_chrono": self.use_chrono,
-                    "chrono_hidden": self.chrono_hidden,
-                    "hidden_features": self.hidden_features,
-                    "hidden_threshold": self.hidden_threshold,
-                    "hidden_output": self.hidden_output,
-                    "use_temporal_features": self.use_temporal_features,
-                    "temporal_project_to": self.temporal_project_to,
-                    "lr": self.lr,
-                    "plif_channels": list(self.plif_channels),
-                    "sew_width": self.sew_width,
-                    "sew_blocks": self.sew_blocks,
-                },
+                extra=metrics_extra,
             ),
-            baseline=MetricSet(
-                quality=baseline_quality,
-                quality_metric=baseline_metric,
-                latency_ms_p50=0.0,
-                latency_ms_p95=0.0,
-                spikes_per_inference=0.0,
-                active_neuron_fraction=0.0,
-                energy_pj=baseline_energy_pj,
-                energy_source=baseline_source,
-                param_count=baseline_params,
-                model_bytes=baseline_bytes,
-                extra=baseline_extra,
-            ),
+            baseline=baseline,
             meta={
                 "downsample": self.downsample,
                 "smoke_from_test": self.smoke_from_test,
                 "seed": self.seed,
                 "backbone": self.backbone,
+                "with_llm_baseline": self.with_llm_baseline,
+                "llm_backend": self.llm_backend if self.with_llm_baseline else None,
             },
         )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
+    from benchmarks.neuromorphic.recipes import recipe_names
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "DVS128 Gesture runner. Use --recipe for controlled presets "
+            f"({', '.join(recipe_names())}). Explicit flags override the recipe."
+        )
+    )
     parser.add_argument("--root", default="data/dvs-gesture")
     parser.add_argument("--out-dir", type=Path, default=Path("artifacts/benchmarks"))
+    parser.add_argument(
+        "--recipe",
+        default=None,
+        choices=recipe_names(),
+        help="Controlled training recipe (parity-ds8 freeze, hires-ds4, smokes).",
+    )
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--time-bins", type=int, default=32)
@@ -478,6 +558,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-output", choices=["spikes", "membrane"], default="spikes")
     parser.add_argument("--with-ann-baseline", action="store_true")
     parser.add_argument("--ann-hidden", type=int, default=128)
+    parser.add_argument(
+        "--with-llm-baseline",
+        action="store_true",
+        help="Optional LLM classification baseline (scripted offline default; not product path).",
+    )
+    parser.add_argument(
+        "--llm-backend",
+        choices=["scripted", "majority", "http"],
+        default="scripted",
+        help="scripted/majority = offline weak baseline; http = OpenAI-compatible API.",
+    )
+    parser.add_argument(
+        "--llm-max-samples",
+        type=int,
+        default=0,
+        help="Cap LLM baseline samples (0 = full test set). Use small values for API cost control.",
+    )
     parser.add_argument("--use-temporal-features", action="store_true")
     parser.add_argument("--temporal-project-to", type=int, default=128)
     parser.add_argument("--temporal-alpha", type=float, default=0.25)
@@ -485,26 +582,45 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--sew-width", type=int, default=32)
     parser.add_argument("--sew-blocks", type=int, default=2)
+    parser.add_argument("--lr-schedule", choices=["constant", "cosine"], default="constant")
     return parser.parse_args()
 
 
 def main() -> None:
+    from benchmarks.neuromorphic.recipes import merge_recipe_with_cli
+
     args = parse_args()
+    cfg = merge_recipe_with_cli(
+        args.recipe,
+        {
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "time_bins": args.time_bins,
+            "downsample": args.downsample,
+            "limit_train": args.limit_train,
+            "limit_test": args.limit_test,
+            "smoke_from_test": args.smoke_from_test,
+            "threshold": args.threshold,
+            "readout": args.readout,
+            "lr": args.lr,
+            "lr_schedule": args.lr_schedule,
+        },
+    )
     runner = DvsGestureRunner(
         args.root,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        time_bins=args.time_bins,
-        downsample=args.downsample,
+        epochs=int(cfg["epochs"]),
+        batch_size=int(cfg["batch_size"]),
+        time_bins=int(cfg["time_bins"]),
+        downsample=int(cfg["downsample"]),
         device=args.device,
-        limit_train=args.limit_train,
-        limit_test=args.limit_test,
-        smoke_from_test=args.smoke_from_test,
+        limit_train=int(cfg["limit_train"]),
+        limit_test=int(cfg["limit_test"]),
+        smoke_from_test=bool(cfg["smoke_from_test"]),
         seed=args.seed,
-        threshold=args.threshold,
+        threshold=float(cfg["threshold"]),
         num_branches=args.num_branches,
         max_delay=args.max_delay,
-        readout=args.readout,
+        readout=str(cfg["readout"]),
         use_chrono=args.use_chrono,
         chrono_hidden=args.chrono_hidden,
         hidden_features=args.hidden_features,
@@ -512,15 +628,27 @@ def main() -> None:
         hidden_output=args.hidden_output,
         with_ann_baseline=args.with_ann_baseline,
         ann_hidden=args.ann_hidden,
+        with_llm_baseline=args.with_llm_baseline,
+        llm_backend=args.llm_backend,
+        llm_max_samples=args.llm_max_samples,
         use_temporal_features=args.use_temporal_features,
         temporal_project_to=args.temporal_project_to,
         temporal_alpha=args.temporal_alpha,
         backbone=args.backbone,
-        lr=args.lr,
+        lr=float(cfg["lr"]),
         sew_width=args.sew_width,
         sew_blocks=args.sew_blocks,
+        lr_schedule=str(cfg["lr_schedule"]),
     )
-    print(run_benchmarks([runner], args.out_dir)[0].to_json())
+    results = run_benchmarks([runner], args.out_dir)
+    result = results[0]
+    if cfg.get("recipe"):
+        result.meta["recipe"] = cfg["recipe"]
+        result.meta["recipe_description"] = cfg.get("recipe_description")
+        # Persist recipe into written JSON.
+        out_json = Path(args.out_dir) / f"{runner.name}.json"
+        out_json.write_text(result.to_json(), encoding="utf-8")
+    print(result.to_json())
 
 
 if __name__ == "__main__":

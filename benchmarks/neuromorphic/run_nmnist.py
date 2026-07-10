@@ -103,6 +103,9 @@ class NmnistRunner:
         hidden_output: str = "spikes",
         with_ann_baseline: bool = False,
         ann_hidden: int = 128,
+        with_llm_baseline: bool = False,
+        llm_backend: str = "scripted",
+        llm_max_samples: int = 0,
         use_temporal_features: bool = False,
         temporal_project_to: int = 0,
         temporal_alpha: float = 0.25,
@@ -127,6 +130,9 @@ class NmnistRunner:
         self.hidden_output = hidden_output
         self.with_ann_baseline = with_ann_baseline
         self.ann_hidden = ann_hidden
+        self.with_llm_baseline = with_llm_baseline
+        self.llm_backend = llm_backend
+        self.llm_max_samples = llm_max_samples
         self.use_temporal_features = use_temporal_features
         self.temporal_project_to = temporal_project_to
         self.temporal_alpha = temporal_alpha
@@ -252,6 +258,62 @@ class NmnistRunner:
                 else float("inf")
             )
 
+        baseline = MetricSet(
+            quality=baseline_quality,
+            quality_metric=baseline_metric,
+            latency_ms_p50=0.0,
+            latency_ms_p95=0.0,
+            spikes_per_inference=0.0,
+            active_neuron_fraction=0.0,
+            energy_pj=baseline_energy_pj,
+            energy_source=baseline_source,
+            param_count=baseline_params,
+            model_bytes=baseline_bytes,
+            extra=baseline_extra,
+        )
+        metrics_extra: dict = {
+            "epochs": self.epochs,
+            "fanout": energy["fanout"],
+            "dense_mac_ops": energy["dense_mac_ops"],
+            "dense_energy_pj": energy["dense_energy_pj"],
+            "energy_ratio_dense_over_snn": energy["energy_ratio_dense_over_snn"],
+            "layer_count": energy["layer_count"],
+            "threshold": self.threshold,
+            "num_branches": self.num_branches,
+            "max_delay": self.max_delay,
+            "readout": self.readout,
+            "use_chrono": self.use_chrono,
+            "chrono_hidden": self.chrono_hidden,
+            "hidden_features": self.hidden_features,
+            "hidden_threshold": self.hidden_threshold,
+            "hidden_output": self.hidden_output,
+            "use_temporal_features": self.use_temporal_features,
+            "temporal_project_to": self.temporal_project_to,
+        }
+        metrics_extra["majority_class_accuracy"] = majority_acc
+        if self.with_llm_baseline and self.test_loader is not None:
+            from benchmarks.neuromorphic.llm_baseline_util import (
+                attach_llm_to_result,
+                nmnist_class_names,
+                run_llm_baseline,
+            )
+
+            majority_class = int(targets.mode().values.item()) if targets.numel() else 0
+            llm_metrics = run_llm_baseline(
+                self.test_loader,
+                num_classes=NUM_CLASSES,
+                class_names=nmnist_class_names(),
+                backend_kind=self.llm_backend,
+                majority_class=majority_class,
+                max_samples=self.llm_max_samples,
+            )
+            baseline, llm_patch = attach_llm_to_result(
+                llm_metrics=llm_metrics,
+                primary_baseline=baseline,
+                had_ann_or_cnn=self.ann_model is not None,
+            )
+            metrics_extra.update(llm_patch)
+
         return RunResult(
             benchmark=self.name,
             model="dst-snn",
@@ -266,40 +328,15 @@ class NmnistRunner:
                 energy_source=str(energy["energy_source"]),
                 param_count=size["param_count"],
                 model_bytes=size["model_bytes"],
-                extra={
-                    "epochs": self.epochs,
-                    "fanout": energy["fanout"],
-                    "dense_mac_ops": energy["dense_mac_ops"],
-                    "dense_energy_pj": energy["dense_energy_pj"],
-                    "energy_ratio_dense_over_snn": energy["energy_ratio_dense_over_snn"],
-                    "layer_count": energy["layer_count"],
-                    "threshold": self.threshold,
-                    "num_branches": self.num_branches,
-                    "max_delay": self.max_delay,
-                    "readout": self.readout,
-                    "use_chrono": self.use_chrono,
-                    "chrono_hidden": self.chrono_hidden,
-                    "hidden_features": self.hidden_features,
-                    "hidden_threshold": self.hidden_threshold,
-                    "hidden_output": self.hidden_output,
-                    "use_temporal_features": self.use_temporal_features,
-                    "temporal_project_to": self.temporal_project_to,
-                },
+                extra=metrics_extra,
             ),
-            baseline=MetricSet(
-                quality=baseline_quality,
-                quality_metric=baseline_metric,
-                latency_ms_p50=0.0,
-                latency_ms_p95=0.0,
-                spikes_per_inference=0.0,
-                active_neuron_fraction=0.0,
-                energy_pj=baseline_energy_pj,
-                energy_source=baseline_source,
-                param_count=baseline_params,
-                model_bytes=baseline_bytes,
-                extra=baseline_extra,
-            ),
-            meta={"smoke_from_test": self.smoke_from_test, "seed": self.seed},
+            baseline=baseline,
+            meta={
+                "smoke_from_test": self.smoke_from_test,
+                "seed": self.seed,
+                "with_llm_baseline": self.with_llm_baseline,
+                "llm_backend": self.llm_backend if self.with_llm_baseline else None,
+            },
         )
 
 
@@ -326,6 +363,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-output", choices=["spikes", "membrane"], default="spikes")
     parser.add_argument("--with-ann-baseline", action="store_true")
     parser.add_argument("--ann-hidden", type=int, default=128)
+    parser.add_argument(
+        "--with-llm-baseline",
+        action="store_true",
+        help="Optional LLM classification baseline (scripted offline default; not product path).",
+    )
+    parser.add_argument(
+        "--llm-backend",
+        choices=["scripted", "majority", "http"],
+        default="scripted",
+        help="scripted/majority = offline weak baseline; http = OpenAI-compatible API.",
+    )
+    parser.add_argument(
+        "--llm-max-samples",
+        type=int,
+        default=0,
+        help="Cap LLM baseline samples (0 = full test set).",
+    )
     parser.add_argument("--use-temporal-features", action="store_true")
     parser.add_argument("--temporal-project-to", type=int, default=0)
     parser.add_argument("--temporal-alpha", type=float, default=0.25)
@@ -355,6 +409,9 @@ def main() -> None:
         hidden_output=args.hidden_output,
         with_ann_baseline=args.with_ann_baseline,
         ann_hidden=args.ann_hidden,
+        with_llm_baseline=args.with_llm_baseline,
+        llm_backend=args.llm_backend,
+        llm_max_samples=args.llm_max_samples,
         use_temporal_features=args.use_temporal_features,
         temporal_project_to=args.temporal_project_to,
         temporal_alpha=args.temporal_alpha,

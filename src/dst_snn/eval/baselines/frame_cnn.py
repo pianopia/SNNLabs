@@ -14,6 +14,8 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise ImportError("Install PyTorch with `pip install -r requirements-dst-snn.txt`.") from exc
 
+from .spatial_ops import estimate_three_stage_conv_macs
+
 
 class FrameCnnClassifier(nn.Module):
     def __init__(
@@ -55,17 +57,15 @@ class FrameCnnClassifier(nn.Module):
         return self.fc(self.dropout(pooled))
 
     def mac_ops_per_inference(self, time_bins: int, height: int, width: int) -> float:
-        """Order-of-magnitude dense MAC count for the three convs + FC."""
-        c1, c2, c3 = self.channels
-        h2, w2 = max(1, height // 2), max(1, width // 2)
-        h3, w3 = max(1, height // 4), max(1, width // 4)
-        per_step = (
-            float(self.in_channels * c1 * 9 * height * width)
-            + float(c1 * c2 * 9 * h2 * w2)
-            + float(c2 * c3 * 9 * h3 * w3)
-            + float(c3 * self.num_classes)
+        """Dense MAC count for the three convs + FC (shared with SNN dense proxy)."""
+        return estimate_three_stage_conv_macs(
+            in_channels=self.in_channels,
+            channels=self.channels,
+            height=height,
+            width=width,
+            time_bins=time_bins,
+            num_classes=self.num_classes,
         )
-        return per_step * float(time_bins)
 
 
 def train_frame_cnn(

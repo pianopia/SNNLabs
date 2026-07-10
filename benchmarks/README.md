@@ -17,6 +17,30 @@ pip install -r requirements-3dcg.txt
 pip install websockets  # sensorimotor WebSocket transport
 ```
 
+## DVS controlled recipes (Phase 0 closeout)
+
+Named presets avoid ad-hoc flag combinations when pushing accuracy. Explicit
+CLI flags always override the recipe. Spatial note: DVS128 is 128×128;
+`downsample=k` → ~`(128/k)²` frames.
+
+| recipe | downsample | spatial | LR | purpose |
+|---|---:|---|---|---|
+| `parity-ds8` | 8 | ~16×16 | constant | matches 2026-07-10 full-train freeze |
+| `hires-ds4` | 4 | ~32×32 | cosine | higher-res accuracy push (closeout plan) |
+| `hires-smoke` | 4 | ~32×32 | cosine | short stratified smoke |
+| `smoke-spatial` | 8 | ~16×16 | constant | fast spatial smoke |
+
+```bash
+# Higher-res controlled push (full train, pick backbone + ANN baseline)
+python benchmarks/neuromorphic/run_dvs_gesture.py \
+  --recipe hires-ds4 --backbone conv-plif --with-ann-baseline --seed 0
+
+# Multi-seed smoke of the hires preset
+python benchmarks/neuromorphic/run_multi_seed.py \
+  --benchmark dvs-gesture --recipe hires-smoke --backbone conv-plif \
+  --seeds 0,1 --out-dir artifacts/benchmarks/dvs-hires-smoke
+```
+
 ## Energy model
 
 `EnergyModel` defaults to 45nm (`0.9 pJ/MAC`, `0.1 pJ/AC`) and records its
@@ -29,8 +53,50 @@ Compare with `energy_ratio(snn_pj, dense_pj)` (also written as
 `--with-ann-baseline` trains a small mean-pool MLP and replaces the quality
 baseline with `ann_mlp_accuracy` while still reporting dense-MAC energy.
 
-Wall-clock energy via macOS `powermetrics` is not wired yet (optional design
-item).
+Energy constants are overridable via `EnergyModel.from_json_file(path)`
+(JSON keys: `mac_pj`, `ac_pj`, optional `source`). Wall-clock energy via macOS
+`powermetrics` is optional/best-effort (`src/dst_snn/eval/powermetrics.py`).
+
+## Hires full-train freeze
+
+```bash
+# Full train recipe hires-ds4 (ds=4, cosine LR), seeds 0–2, conv-plif + Frame-CNN
+python scripts/run_dvs_hires_fulltrain.py --backbone conv-plif --seeds 0,1,2
+# Optional SEW as well:
+python scripts/run_dvs_hires_fulltrain.py --backbone conv-plif --sew --seeds 0,1,2
+```
+
+Reports land in `artifacts/benchmarks/dvs-hires-fulltrain/`.
+
+## Optional LLM baseline (Phase 0 eval interface)
+
+Design Phase 0 includes a **対 LLM** comparison interface. This is **not** a
+product path: default offline mode uses a scripted majority-class responder so
+tests never touch the network. Real OpenAI-compatible APIs are opt-in.
+
+```bash
+# Offline weak baseline (majority class id as scripted LLM reply)
+python benchmarks/neuromorphic/run_nmnist.py \
+  --smoke-from-test --limit-train 32 --limit-test 16 --epochs 1 \
+  --with-llm-baseline --llm-backend scripted --llm-max-samples 16
+
+python benchmarks/neuromorphic/run_dvs_gesture.py \
+  --smoke-from-test --limit-train 32 --limit-test 16 --epochs 1 \
+  --with-llm-baseline --llm-backend scripted --llm-max-samples 16
+
+# Real API (requires OPENAI_API_KEY; optional OPENAI_BASE_URL / OPENAI_MODEL)
+python benchmarks/neuromorphic/run_nmnist.py \
+  --with-llm-baseline --llm-backend http --llm-max-samples 32 ...
+```
+
+Results:
+- LLM metrics live in `metrics.extra.llm_baseline` always.
+- If no ANN/CNN baseline is present, `baseline` is also filled with the LLM
+  `MetricSet` so reports show it.
+- Energy uses `llm_token_proxy_v1` / `energy_accounting=llm_api_external_v1`
+  and is **not comparable** to SNN AC or dense MAC pJ.
+- Modules: `src/dst_snn/eval/baselines/llm_backend.py`,
+  `llm_classifier.py`, `benchmarks/neuromorphic/llm_baseline_util.py`.
 
 ## Neuromorphic Classification
 
@@ -106,14 +172,27 @@ sensorimotor runtime with a synthetic sensor, mock actuator, and predictive
 world model. It emits the shared `RunResult` schema and requires no hardware or
 dataset download.
 
+**Closed loop (default):** motor commands shift the synthetic sensor phase, so
+actions change the next observation. Disable with `--no-closed-loop`.
+
+**Representation probes:** latents are scored against known `phase_bin` labels
+via linear probe accuracy, nearest-centroid accuracy, and k-means cluster
+purity (design B-7).
+
+**ANN baseline:** `--with-ann-baseline` trains a dense per-timestep MLP
+predictor on the same stream for quality / latency / MAC-energy comparison.
+
 ```bash
 pip install -r requirements-dst-snn.txt -r requirements-bench.txt
 python benchmarks/sensorimotor/run_synthetic_loop.py --steps 32
+python benchmarks/sensorimotor/run_synthetic_loop.py --steps 64 --with-ann-baseline \
+  --out-dir artifacts/benchmarks/sensorimotor-closed
 ```
 
 The quality metric is `prediction_loss_reduction`, computed from the first and
-last loss windows. Extra metrics include the loss history and mean intrinsic
-reward from the EMA learning-progress tracker.
+last loss windows. Extra metrics include loss history, intrinsic reward,
+`closed_loop`, phase-shift range, probe scores, and
+`energy_accounting=sensorimotor_snn_ac_vs_dense_mac_v1`.
 
 ## EDEN14 Image To 3D Construction
 
@@ -198,6 +277,19 @@ python scripts/run_dvs_fulltrain_pilot.py
 | Frame-CNN (same width) | 0.354±0.015 | 3/3 above |
 
 Details: `artifacts/benchmarks/dvs-fulltrain-pilot/pilot_report.md`.
+
+### Milestone freeze (full-train)
+
+| backbone | SNN mean | CNN mean | note |
+|---|---:|---:|---|
+| conv-plif | **0.447** | 0.434 | CNN-parity |
+| sew-plif | **0.490** | 0.489 | residual helps |
+
+Record: `docs/superpowers/progress/2026-07-10-milestone-snapshot.md`  
+Interpretation: `artifacts/benchmarks/dvs-fulltrain-sew/INTERPRETATION.md`
+
+Energy for `conv-plif` uses shared MAC accounting (`shared_spatial_mac_proxy_v1`) so
+Frame-CNN and dense proxy match. Optional `--lr-schedule cosine`.
 
 ## Temporal feature front-end
 
