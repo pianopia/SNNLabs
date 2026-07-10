@@ -1,0 +1,4 @@
+torch>=2.2
+numpy>=1.24
+tonic>=1.4
+pytest>=8

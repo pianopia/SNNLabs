@@ -8,6 +8,10 @@ nimblecache/
 *.dll
 .env
 logs/
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
 
 .midnote/
 

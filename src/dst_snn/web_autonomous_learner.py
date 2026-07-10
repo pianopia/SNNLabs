@@ -158,6 +158,14 @@ def stable_hash(value: str) -> int:
     return int(hashlib.blake2b(value.encode("utf-8"), digest_size=8).hexdigest(), 16)
 
 
+def compute_novelty(active: list[dict[str, Any]], known_before: set[str]) -> float:
+    """Fraction of active tokens not seen before this observation."""
+    if not active:
+        return 0.0
+    novel = sum(1 for item in active if item["token"] not in known_before)
+    return novel / len(active)
+
+
 class FeatureSpace:
     """Fixed-dimensional sparse feature space for growing modules.
 
@@ -552,20 +560,28 @@ class DstWebLearner:
         return WebObservation(page.url, title, module_observations, action)
 
     def train_observation(self, observation: WebObservation) -> dict[str, Any]:
+        known_before = set(self.feature_space.token_to_index)
         spikes, target, active = self.feature_space.encode(observation.modules, self.time_steps)
         x = spikes.unsqueeze(0).to(self.device)
         y = target.unsqueeze(0).to(self.device)
         out = self.model(x)
         logits = out["membrane"].amax(dim=1)
         spike_rate = out["spikes"].mean()
-        loss = F.binary_cross_entropy_with_logits(logits, y) + 0.0008 * spike_rate
-        self.optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        self.optimizer.step()
 
         salience = max([obs.salience for obs in observation.modules], default=0.1)
-        novelty = sum(1 for item in active if self.feature_space.token_to_index.get(item["token"]) is not None) / max(1, len(active))
+        novelty = compute_novelty(active, known_before)
         reward = max(0.05, min(1.0, 0.2 + salience * 0.35 + novelty * 0.1))
+
+        loss = reward * F.binary_cross_entropy_with_logits(logits, y) + 0.0008 * spike_rate
+        self.optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        base_lrs = [group["lr"] for group in self.optimizer.param_groups]
+        for group, base_lr in zip(self.optimizer.param_groups, base_lrs):
+            group["lr"] = base_lr * reward
+        self.optimizer.step()
+        for group, base_lr in zip(self.optimizer.param_groups, base_lrs):
+            group["lr"] = base_lr
+
         relation_updates = self.relations.update(active, reward=reward, salience=salience)
         self.steps += 1
         return {
@@ -573,6 +589,7 @@ class DstWebLearner:
             "url": observation.url,
             "title": observation.title,
             "loss": float(loss.detach().cpu()),
+            "reward": float(reward),
             "spike_rate": float(spike_rate.detach().cpu()),
             "active_features": len(active),
             "relation_updates": relation_updates,
