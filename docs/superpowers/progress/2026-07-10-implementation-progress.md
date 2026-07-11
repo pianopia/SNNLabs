@@ -252,3 +252,27 @@ Vision + morph + external construct (2026-07-11):
 - Morph reward (match improvement) + construct reward; goal `imitateAndConstruct` default
 - Auto world props (crate/pillar/boulder) for inspiration; SNN can spawn external builds
 - Smoke: morph toward tall vision; ≥1 construct over 400 steps; tsc/build green
+
+Streaming multimodal SNN foundation redesign (2026-07-11):
+- Research/design: `docs/superpowers/specs/2026-07-11-streaming-multimodal-snn-foundation-design.md`
+- Plan: `docs/superpowers/plans/2026-07-11-streaming-multimodal-snn-foundation.md`
+- Phase 1 runtime contract in `src/dst_snn/foundation/`:
+  - signed multi-level sigma-delta events
+  - modality-specific temporal compression and fusion
+  - constant-state streaming spiking SSM reference runtime
+  - stable early exit and explicit proxy efficiency accounting
+- Smoke CLI: `benchmarks/foundation/run_streaming_multimodal.py`
+- Remaining after Phase 1: trainable backbone, teacher feature distillation,
+  unified decoders, matched-hardware wall-power measurement.
+
+Streaming multimodal SNN foundation Phase 2 (2026-07-11):
+- `torch_ssm.py`: trainable signed-integer diagonal Spiking SSM + backbone.
+- `distillation.py`: frozen teacher hooks and cached intermediate features.
+- `replacement.py`: progressive ANN→SNN prefix replacement and trainer.
+- `losses.py`: task + logit KD + feature alignment + spike budget + early exit.
+- `phase2_benchmarks.py` / `benchmarks/foundation/run_phase2.py`:
+  - synthetic text next-token accuracy `0.000→1.000` (teacher `1.000`)
+  - synthetic image-text R@1 `0.000→1.000` (teacher `1.000`)
+  - event rates `0.628` / `0.475`; accuracy path works, sparsity tuning remains.
+- Artifact: `artifacts/benchmarks/foundation-phase2-smoke.json`.
+- Scope warning: mechanics smoke only, not language/VLM capability.

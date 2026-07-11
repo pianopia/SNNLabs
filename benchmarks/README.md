@@ -2,6 +2,29 @@
 
 # SNN Benchmarks
 
+## Streaming multimodal foundation runtime
+
+The Phase 1 reference runtime exercises modality-specific signed event coding,
+temporal compression, constant-state streaming and explicit proxy accounting:
+
+```bash
+python benchmarks/foundation/run_streaming_multimodal.py \
+  --out artifacts/benchmarks/foundation-streaming-smoke.json
+```
+
+The reported AC/MAC energy is an estimate. It is not a wall-power claim; later
+deployment phases must compare joules per successful task on matched hardware.
+
+Phase 2 trainable backbone, distillation and minimum task smoke:
+
+```bash
+python benchmarks/foundation/run_phase2.py \
+  --out artifacts/benchmarks/foundation-phase2-smoke.json
+```
+
+Use `--quick` for a shorter mechanics check. Both tasks are synthetic and must
+not be presented as general language or multimodal capability results.
+
 Shared evaluation harness (`src/dst_snn/eval/`) plus neuromorphic, 3DCG, and
 sensorimotor runners. Every runner emits the same `RunResult` schema: quality,
 latency (p50/p95), spikes-per-inference, energy (pJ, AC/MAC model), and model
