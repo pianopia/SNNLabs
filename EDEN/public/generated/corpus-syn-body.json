@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 5,
+  "family": "body",
+  "quality": 0.9891981257166477,
+  "path": "EDEN/public/generated/corpus-syn-body.glb",
+  "n_vertices": 182,
+  "n_faces": 348,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-syn-body.glb",
+  "category": "body",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "syn-body"
+}

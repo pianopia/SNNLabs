@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 8,
+  "family": "pillar",
+  "quality": 0.9835862438571462,
+  "path": "EDEN/public/generated/corpus-syn-pillar.glb",
+  "n_vertices": 82,
+  "n_faces": 152,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-syn-pillar.glb",
+  "category": "pillar",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "syn-pillar"
+}

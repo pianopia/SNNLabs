@@ -56,6 +56,8 @@ def build_unit_box() -> Path:
         {
             "license": "synthetic-internal",
             "category": "rigid_prop",
+            "family": "box",
+            "source": "synthetic-internal",
             "rigged": False,
             "poly_band": "low",
             "note": "Axis-aligned unit box.",
@@ -71,6 +73,8 @@ def build_icosphere() -> Path:
         {
             "license": "synthetic-internal",
             "category": "organic",
+            "family": "sphere",
+            "source": "synthetic-internal",
             "rigged": False,
             "poly_band": "low",
             "note": "Icosphere stand-in for organic silhouette.",
@@ -86,6 +90,8 @@ def build_cylinder_prop() -> Path:
         {
             "license": "synthetic-internal",
             "category": "hard_surface",
+            "family": "cylinder",
+            "source": "synthetic-internal",
             "rigged": False,
             "poly_band": "low",
             "note": "Cylinder hard-surface prop.",
@@ -105,6 +111,8 @@ def build_capsule_character() -> Path:
         {
             "license": "synthetic-internal",
             "category": "organic_character",
+            "family": "body",
+            "source": "synthetic-internal",
             "rigged": False,
             "poly_band": "low",
             "note": "Unrigged character massing; replace with licensed rigged GLB for skin metrics.",
@@ -129,11 +137,50 @@ def build_foliage_proxy() -> Path:
         {
             "license": "synthetic-internal",
             "category": "foliage",
+            "family": "platform",
+            "source": "synthetic-internal",
             "rigged": False,
             "poly_band": "low",
             "note": "Foliage category stand-in.",
         },
     )
+
+
+def build_diverse_families() -> list[Path]:
+    """Extra synthetic families so the local corpus is non-trivial without external packs."""
+    from src.dst_snn.threedcg.dataset import FAMILIES, make_sample
+
+    paths = []
+    for i, fam in enumerate(FAMILIES):
+        if fam in {"box", "sphere", "cylinder"}:
+            continue  # already covered by classic builders
+        sample = make_sample(
+            family=fam,
+            extents=(0.9 + 0.05 * (i % 3), 1.2 + 0.08 * ((i + 1) % 3), 0.85 + 0.05 * ((i + 2) % 3)),
+            seed=100 + i,
+        )
+        mesh = trimesh.Trimesh(
+            vertices=sample.asset.vertices,
+            faces=sample.asset.faces,
+            process=False,
+        )
+        asset_id = f"syn-{fam}"
+        paths.append(
+            _export(
+                asset_id,
+                mesh,
+                {
+                    "license": "synthetic-internal",
+                    "category": fam,
+                    "family": fam,
+                    "rigged": False,
+                    "poly_band": "low",
+                    "source": "synthetic-internal",
+                    "note": f"Synthetic stand-in for family={fam}; replace with licensed GLB.",
+                },
+            )
+        )
+    return paths
 
 
 def main() -> None:
@@ -143,6 +190,7 @@ def main() -> None:
         build_cylinder_prop(),
         build_capsule_character(),
         build_foliage_proxy(),
+        *build_diverse_families(),
     ]
     catalog = []
     for glb in paths:
@@ -152,19 +200,37 @@ def main() -> None:
         report = glb.parent / "generator_primitive_fit.json"
         report.write_text(result.to_json() + "\n", encoding="utf-8")
         meta = json.loads((glb.parent / "meta.json").read_text(encoding="utf-8"))
+        # Ensure silhouette input exists for SNN training
+        try:
+            from src.dst_snn.threedcg.corpus import _write_png_rgb, load_mesh_any
+            from src.dst_snn.threedcg.dataset import render_silhouette
+
+            mesh = load_mesh_any(glb)
+            sil = render_silhouette(mesh, size=64)
+            _write_png_rgb(glb.parent / "input.png", sil)
+        except Exception:
+            pass
         catalog.append(
             {
                 "asset_id": asset_id,
                 "path": str(glb.relative_to(ROOT)),
                 "category": meta.get("category"),
+                "family": meta.get("family"),
                 "license": meta.get("license"),
+                "source": meta.get("source", "synthetic-internal"),
                 "generator_quality": result.metrics.quality,
             }
         )
         print(f"{asset_id}: generator quality={result.metrics.quality:.4f}")
 
     catalog_path = ROOT / "data" / "threedcg" / "catalog.json"
-    catalog_path.write_text(json.dumps({"assets": catalog, "source": "synthetic-internal"}, indent=2) + "\n")
+    catalog_path.write_text(
+        json.dumps(
+            {"version": 2, "source": "synthetic-internal", "n_assets": len(catalog), "assets": catalog},
+            indent=2,
+        )
+        + "\n"
+    )
     print(f"wrote {catalog_path} ({len(catalog)} assets)")
 
 

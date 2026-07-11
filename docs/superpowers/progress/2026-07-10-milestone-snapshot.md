@@ -12,7 +12,7 @@
 | Web 学習器 novelty / reward 修正 | 完了 |
 | Sensorimotor ランタイム（初回増分） | 完了〜拡張済み |
 | 対 LLM ベースライン | 完了（optional eval interface: scripted/HTTP; 実 API 数値は未凍結） |
-| 3DCG 生成器本体 | スコープ外（後続） |
+| 3DCG 生成器本体 | 初回増分済み（Track1 スクリプト + Track2 occupancy scaffold） |
 
 対応 plan:
 - `docs/superpowers/plans/2026-07-09-snn-eval-harness-neuromorphic.md` — 実装済み

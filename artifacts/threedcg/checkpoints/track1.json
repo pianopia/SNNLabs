@@ -1,0 +1,7 @@
+{
+  "track": "track1",
+  "in_features": 1152,
+  "final_loss": 0.10462743043899536,
+  "epochs": 20,
+  "checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track1.pt"
+}

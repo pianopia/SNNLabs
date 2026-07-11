@@ -218,6 +218,108 @@ result = run_baseline(reference, asset_id="unit-box")
 print(result.to_json())
 ```
 
+### SNN image→3D (Track 1 / Track 2)
+
+First increment of the design’s generators (not full Blender/SDF SOTA):
+
+```bash
+python scripts/build_threedcg_corpus.py   # if data/ missing
+python benchmarks/threedcg/run_generate.py \
+  --reference data/threedcg/unit-box/reference.glb \
+  --image data/threedcg/unit-box/input.png \
+  --track track1 --asset-id unit-box
+
+python benchmarks/threedcg/run_score.py \
+  --reference data/threedcg/unit-box/reference.glb \
+  --generator track2_occupancy --image data/threedcg/unit-box/input.png \
+  --asset-id unit-box
+```
+
+Package: `src/dst_snn/threedcg/` — image spike encoder, mesh-op executor,
+scripted Track 1 policy, Track 2 occupancy head, pipeline scorer.
+
+### Supervised training (Track1 / Track2 heads)
+
+```bash
+# Offline synthetic data — no network, CPU fine
+python scripts/train_threedcg_generators.py --track both --epochs 40 --n-samples 96
+
+# Use trained weights in generation
+python benchmarks/threedcg/run_generate.py \
+  --reference data/threedcg/unit-box/reference.glb \
+  --synthetic --track track1
+# Or via pipeline API: track="track1_trained" with checkpoint under
+# artifacts/threedcg/checkpoints/track1.pt
+```
+
+Checkpoints: `artifacts/threedcg/checkpoints/{track1,track2}.pt`
+
+### Mesh backend (Track1 → Blender)
+
+```bash
+# Default CI-safe path (trimesh)
+python benchmarks/threedcg/run_generate.py \
+  --reference data/threedcg/unit-box/reference.glb --synthetic --track track1 --backend trimesh
+
+# Same MeshOp sequence via mock bpy mapping (no Blender install)
+python benchmarks/threedcg/run_generate.py \
+  --reference data/threedcg/unit-box/reference.glb --synthetic --track track1 --backend mock
+
+# Live Blender (requires `import bpy` — run inside Blender or bpy-enabled env)
+python benchmarks/threedcg/run_generate.py \
+  --reference data/threedcg/unit-box/reference.glb --synthetic --track track1 --backend bpy
+```
+
+`auto` picks `bpy` when available, else `trimesh`.
+
+Rich MeshOps (Track1 construction depth):
+
+| op | trimesh | mock | live bpy |
+|---|---|---|---|
+| `EXTRUDE` | AABB elongate along axis | params + mesh | `mesh.extrude_region_move` |
+| `SUBDIVIDE` | `mesh.subdivide` (capped) | log + subdivide on export | `mesh.subdivide` |
+| `BEVEL` | subdivide + normal inflate | log + approx | `mesh.bevel` |
+
+Also available: `ADD_ARMATURE`, `SMART_UV`, `ASSIGN_MATERIAL`, `AUTO_WEIGHTS`.
+
+```bash
+# Sequence + continuous SDF heads
+python scripts/train_threedcg_generators.py --track all --epochs 30 --n-samples 64
+```
+
+Pipeline tracks: `track1_sequence`, `track2_sdf` (plus prior `track1_trained` / `track2_trained`).
+
+### Eval + EDEN export
+
+```bash
+# Train + scorer quality on held-out synthetic (+ optional unit-box)
+python scripts/eval_threedcg_generators.py --epochs 25 --n-train 48 --n-eval 12 --unit-box
+
+# Export GLB for EDEN auto-spawn (+ manifest.json)
+python scripts/export_threedcg_for_eden.py --track track1_sequence --name snn-seq-build
+python scripts/export_threedcg_for_eden.py --track track2_sdf --name snn-sdf-build
+# → EDEN/public/generated/*.glb + manifest.json
+# EDEN biotope ON → fetches /generated/manifest.json and spawns them automatically
+```
+
+### Quality closed-loop fine-tune
+
+Optimizes **scorer quality** (not only CE/MSE labels):
+
+```bash
+# Optional: supervised pretrain first
+python scripts/train_threedcg_generators.py --track all --epochs 30
+
+# Then quality loop (REINFORCE + soft Chamfer / quality-gated BCE)
+python scripts/train_threedcg_quality.py --track all --epochs 20 --n-samples 32
+```
+
+| signal | use |
+|---|---|
+| soft Chamfer (torch) | differentiable surface fit for Track1 extents |
+| scorer `quality` | REINFORCE advantage for discrete class / op sequence |
+| quality-gated BCE | harder push on occupancy when quality is low |
+
 Metrics the reference cannot support, such as UV/rig/skin on an unrigged model,
 return `None` and are excluded from the composite `quality`. Render-based SSIM
 is gated on `pyrender` and, when available, is included under

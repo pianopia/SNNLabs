@@ -1,17 +1,16 @@
-"""Minimal 3DCG generators for Phase-0+ scaffolding (not full Track 1/2).
+"""3DCG generators: Phase-0 baselines + Track 1/2 SNN scaffolds.
 
-Provides deterministic candidates the scorer can evaluate offline:
-  - ``primitive_fit``: axis-aligned box / sphere / cylinder fit to reference
-    point cloud extents (simple geometry regression stand-in).
-  - ``voxel_occupancy``: coarse occupancy grid from reference AABB, exported
-    as a marching-cubes-free box soup (stable without scipy MC).
+Baselines:
+  - ``primitive_fit`` / ``voxel_occupancy`` / ``convex_hull`` (geometry only)
 
-A real SNN image→3D model replaces these later; the harness and scorer stay fixed.
+SNN tracks (``src/dst_snn/threedcg``):
+  - ``track1_scripted``: image spikes → mesh-op tokens → trimesh executor
+  - ``track2_occupancy``: image spikes → coarse occupancy → mesh
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 import trimesh
@@ -20,7 +19,13 @@ from .asset import Asset, asset_from_trimesh
 from .scorer import score_to_result
 from src.dst_snn.eval.result import RunResult
 
-GeneratorKind = Literal["convex_hull", "primitive_fit", "voxel_occupancy"]
+GeneratorKind = Literal[
+    "convex_hull",
+    "primitive_fit",
+    "voxel_occupancy",
+    "track1_scripted",
+    "track2_occupancy",
+]
 
 
 def _bounds(reference: Asset) -> tuple[np.ndarray, np.ndarray]:
@@ -100,6 +105,21 @@ def generate_candidate(reference: Asset, kind: GeneratorKind = "primitive_fit", 
         return primitive_fit_candidate(reference, kind=kwargs.get("primitive", "box"))
     if kind == "voxel_occupancy":
         return voxel_occupancy_candidate(reference, resolution=int(kwargs.get("resolution", 8)))
+    if kind in {"track1_scripted", "track2_occupancy"}:
+        from src.dst_snn.threedcg.pipeline import generate_from_image, synthetic_box_image
+
+        image = kwargs.get("image")
+        if image is None:
+            image = synthetic_box_image(size=int(kwargs.get("image_size", 32)))
+        track = "track1" if kind == "track1_scripted" else "track2"
+        return generate_from_image(
+            image,
+            track=track,  # type: ignore[arg-type]
+            reference=reference,
+            seed=int(kwargs.get("seed", 0)),
+            resolution=int(kwargs.get("resolution", 8)),
+            shape=kwargs.get("shape", "box"),
+        )
     raise ValueError(f"unknown generator kind: {kind!r}")
 
 
@@ -108,11 +128,16 @@ def run_generator(
     *,
     asset_id: str,
     kind: GeneratorKind = "primitive_fit",
+    image: Optional[object] = None,
     **kwargs,
 ) -> RunResult:
+    if image is not None:
+        kwargs = {**kwargs, "image": image}
     candidate = generate_candidate(reference, kind, **kwargs)
     result = score_to_result(candidate, reference, asset_id=asset_id)
     result.meta["generator"] = kind
-    result.meta["generator_kwargs"] = {k: v for k, v in kwargs.items() if k != "reference"}
+    result.meta["generator_kwargs"] = {
+        k: v for k, v in kwargs.items() if k not in {"reference", "image"}
+    }
     result.model = f"generator:{kind}"
     return result

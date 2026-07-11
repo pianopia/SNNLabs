@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 2,
+  "family": "cylinder",
+  "quality": 0.99351322695997,
+  "path": "EDEN/public/generated/corpus-hard-surface-cylinder.glb",
+  "n_vertices": 66,
+  "n_faces": 128,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-hard-surface-cylinder.glb",
+  "category": "hard_surface",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "hard-surface-cylinder"
+}

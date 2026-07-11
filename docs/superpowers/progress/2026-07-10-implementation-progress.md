@@ -172,4 +172,83 @@ Remainder closeout (2026-07-10 continued) — **completed**:
 External drop-ins only (layout/code ready, not repo content):
 - Licensed SketchFab GLBs under `data/threedcg/<id>/`.
 - Live serial devices.
-- Full SNN image→3D Track 1/2 (beyond scaffold generators).
+
+Phase 1 image→3D Track 1/2 first increment (2026-07-11):
+- Plan: `docs/superpowers/plans/2026-07-11-snn-3dcg-track1-track2.md`
+- Package `src/dst_snn/threedcg/`:
+  - `image_spikes` — luminance + edge rate coding
+  - `ops` — ADD_BOX/SPHERE/CYLINDER/TRANSLATE/SCALE/UNION/FINISH via trimesh
+  - `track1_policy` — scripted + optional `Track1OpHead` (torch scaffold)
+  - `track2_occupancy` — spikes → occupancy grid → box-soup mesh
+  - `pipeline` — image → Asset → `RunResult`
+- CLI: `benchmarks/threedcg/run_generate.py`; generator kinds on `run_score.py`
+- Tests: `tests/threedcg/test_{image_spikes,ops,track1_policy,track2_occupancy,pipeline}.py`
+- Remaining depth: live Blender verification for full armature bind; production SDF quality; EDEN bridge for generators.
+
+Rich bpy MeshOps (2026-07-11):
+- Plan: `docs/superpowers/plans/2026-07-11-rich-bpy-meshops.md`
+- Vocabulary: `EXTRUDE`, `SUBDIVIDE`, `BEVEL` (+ existing ADD/TRANSFORM/UNION)
+- trimesh approximations offline; MockBlenderScene logs + mesh export; live `BpyScene` uses edit-mode ops
+- Tests: ops volume/faces growth; mock op log
+
+Rich ops + continuous SDF + sequences (2026-07-11):
+- Plan: `docs/superpowers/plans/2026-07-11-rich-ops-sdf-sequence.md`
+- MeshOps: `ADD_ARMATURE`, `SMART_UV`, `ASSIGN_MATERIAL`, `AUTO_WEIGHTS` (+ prior EXTRUDE/SUBDIV/BEVEL)
+- `BuildState` attaches bones/uv/materials/skin_weights onto `Asset`
+- `sdf.py` continuous SDF grid + `Track2SdfHead` + train `--track track2_sdf`
+- `sequence.py` teacher programs + `Track1SequenceHead` + train `--track track1_seq`
+- Pipeline tracks: `track1_sequence`, `track2_sdf`
+- Tests: `tests/threedcg/test_rich_ops_sdf_sequence.py`
+
+Verification / tooling (continued):
+- `scripts/eval_threedcg_generators.py` — train + held-out scorer quality report
+  - Eval freeze: track2 0.62→0.68 trained; track2_sdf 0.71 mean; track1 scripted still tops unit-box (uses ref extents)
+  - Report: `artifacts/threedcg/eval/report.md`
+- `scripts/export_threedcg_for_eden.py` — GLB into `EDEN/public/generated/`
+- `run_generate.py` supports track1_sequence / track2_sdf + default checkpoints
+
+Quality closed-loop training (item 1, 2026-07-11):
+- Plan: `docs/superpowers/plans/2026-07-11-quality-closed-loop-training.md`
+- `quality_loop.py`: soft Chamfer (diff) + scorer quality REINFORCE (discrete) + quality-gated occupancy BCE
+- CLI: `scripts/train_threedcg_quality.py --track all`
+- Checkpoints: `track1_quality.pt`, `track1_seq_quality.pt`, `track2_quality.pt`
+- Smoke: seq quality **0.625→0.672**; track2 loss **0.098→0.038**; tests green
+- Pipeline prefers `*_quality.pt` when present for trained/sequence tracks
+
+EDEN auto-spawn generated GLBs (item 2, 2026-07-11):
+- `export_threedcg_for_eden.py` writes/refreshes `EDEN/public/generated/manifest.json`
+- `EDEN/src/snn/generatedAssets.ts` fetches manifest + ring layout
+- `Game.tsx`: biotope ON → auto-spawn `/generated/*.glb` as world entities (glbUrl)
+- Chat: `auto-spawned N generated GLB(s) from /generated`
+
+Blender bpy adapter (recommended next, 2026-07-11):
+- Plan: `docs/superpowers/plans/2026-07-11-blender-bpy-adapter.md`
+- `bpy_adapter.py` — MeshOp → SceneBackend; live `BpyScene` when `bpy` installed
+- `MockBlenderScene` for CI; export real GLB via trimesh inside mock
+- `mesh_backend.py` — `trimesh` | `bpy` | `auto` | `mock`
+- Pipeline/CLI: `--backend`; default remains trimesh for CI
+- Tests: `tests/threedcg/test_bpy_adapter.py`
+
+3DCG supervised training (original plan return, 2026-07-11):
+- Plan: `docs/superpowers/plans/2026-07-11-threedcg-supervised-training.md`
+- `dataset.py` — synthetic silhouette images + occupancy labels offline
+- `train.py` — Track1 CE+MSE, Track2 BCE occupancy; checkpoints `.pt` + `.json`
+- CLI: `scripts/train_threedcg_generators.py --track both`
+- Pipeline modes: `track1_trained` / `track2_trained` load checkpoints
+- Tests: `tests/threedcg/test_train.py` (loss decreases; load + generate)
+
+EDEN autonomous generated body + biotope (2026-07-11):
+- Spec: `docs/superpowers/specs/2026-07-11-eden-autonomous-generated-body-design.md`
+- SNN biotope **enabled by default**; procedural GLB body per creature (no setup UI)
+- Modules: `proceduralBody.ts`, `bodyGlb.ts`, `generatedBodyRegistry.ts`
+- `Game.tsx`: auto body on spawn, glbUrl on local render + WS entity, seed restore
+- Next: Python ↔ EDEN mutual learning over the same glbUrl / sensor loop
+
+Vision + morph + external construct (2026-07-11):
+- Spec/plan: `docs/superpowers/specs/2026-07-11-vision-morph-construct-design.md`,
+  `docs/superpowers/plans/2026-07-11-vision-morph-construct.md`
+- Coarse vision from nearby entity size/shape (`visionShape.ts`)
+- New neurons: vision width/height/depth/novelty, imitate_shape, construct_object
+- Morph reward (match improvement) + construct reward; goal `imitateAndConstruct` default
+- Auto world props (crate/pillar/boulder) for inspiration; SNN can spawn external builds
+- Smoke: morph toward tall vision; ≥1 construct over 400 steps; tsc/build green

@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 0,
+  "family": "body",
+  "quality": 0.9985712120274383,
+  "path": "EDEN/public/generated/corpus-character-massing.glb",
+  "n_vertices": 1964,
+  "n_faces": 3920,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-character-massing.glb",
+  "category": "organic_character",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "character-massing"
+}

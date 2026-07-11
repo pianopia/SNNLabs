@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 12,
+  "family": "wedge",
+  "quality": 0.9834999997415651,
+  "path": "EDEN/public/generated/corpus-syn-wedge.glb",
+  "n_vertices": 16,
+  "n_faces": 24,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-syn-wedge.glb",
+  "category": "wedge",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "syn-wedge"
+}

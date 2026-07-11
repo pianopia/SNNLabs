@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 1,
+  "family": "platform",
+  "quality": 0.9826878368207108,
+  "path": "EDEN/public/generated/corpus-foliage-proxy.glb",
+  "n_vertices": 170,
+  "n_faces": 320,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-foliage-proxy.glb",
+  "category": "foliage",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "foliage-proxy"
+}

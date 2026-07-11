@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 13,
+  "family": "box",
+  "quality": 0.99166666635,
+  "path": "EDEN/public/generated/corpus-unit-box.glb",
+  "n_vertices": 8,
+  "n_faces": 12,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-unit-box.glb",
+  "category": "rigid_prop",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "unit-box"
+}

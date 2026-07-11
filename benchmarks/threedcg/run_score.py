@@ -38,6 +38,8 @@ class ThreedcgScoreRunner:
         use_convex_hull: bool = False,
         generator: str | None = None,
         voxel_resolution: int = 8,
+        image: str | None = None,
+        seed: int = 0,
     ) -> None:
         self.reference = reference
         self.candidate = candidate
@@ -45,16 +47,21 @@ class ThreedcgScoreRunner:
         self.use_convex_hull = use_convex_hull
         self.generator = generator
         self.voxel_resolution = voxel_resolution
+        self.image = image
+        self.seed = seed
         self._result: RunResult | None = None
 
     def prepare(self) -> None:
         ref = load_asset(self.reference)
         start = time.perf_counter()
         if self.generator:
+            kwargs = {"resolution": self.voxel_resolution, "seed": self.seed}
+            if self.image:
+                kwargs["image"] = self.image
             cand = generate_candidate(
                 ref,
                 self.generator,  # type: ignore[arg-type]
-                resolution=self.voxel_resolution,
+                **kwargs,
             )
             model_name = f"generator:{self.generator}"
         elif self.use_convex_hull or not self.candidate:
@@ -82,11 +89,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--convex-hull", action="store_true")
     parser.add_argument(
         "--generator",
-        choices=["convex_hull", "primitive_fit", "voxel_occupancy"],
+        choices=[
+            "convex_hull",
+            "primitive_fit",
+            "voxel_occupancy",
+            "track1_scripted",
+            "track2_occupancy",
+        ],
         default=None,
         help="Built-in generator instead of --candidate / --convex-hull.",
     )
     parser.add_argument("--voxel-resolution", type=int, default=8)
+    parser.add_argument("--image", default=None, help="Input image for track1/track2 generators")
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-dir", type=Path, default=Path("artifacts/benchmarks/threedcg"))
     return parser.parse_args()
 
@@ -100,6 +115,8 @@ def main() -> None:
         use_convex_hull=args.convex_hull,
         generator=args.generator,
         voxel_resolution=args.voxel_resolution,
+        image=args.image,
+        seed=args.seed,
     )
     results = run_benchmarks([runner], args.out_dir)
     print(results[0].to_json())

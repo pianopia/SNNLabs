@@ -1,0 +1,168 @@
+{
+  "train": {
+    "track1": {
+      "track": "track1",
+      "final_loss": 0.10462743043899536,
+      "first_loss": 1.190891981124878,
+      "checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track1.pt",
+      "epochs": 20
+    },
+    "track2": {
+      "track": "track2",
+      "final_loss": 0.10284330695867538,
+      "first_loss": 0.69537353515625,
+      "checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track2.pt",
+      "epochs": 20
+    },
+    "track1_seq": {
+      "track": "track1_seq",
+      "final_loss": 0.27343785762786865,
+      "first_loss": 2.476442337036133,
+      "checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track1_seq.pt",
+      "epochs": 20
+    },
+    "track2_sdf": {
+      "track": "track2_sdf",
+      "final_loss": 0.3767452836036682,
+      "first_loss": 1.8518126010894775,
+      "checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track2_sdf.pt",
+      "epochs": 12
+    }
+  },
+  "eval_summaries": [
+    {
+      "track": "track1",
+      "n": 10,
+      "quality_mean": 0.8330315300362512,
+      "quality_std": 0.07632656198270885,
+      "quality_min": 0.7722252739570376,
+      "quality_max": 0.9829064144475606,
+      "latency_ms_mean": 0.6556746999999419,
+      "kwargs": {
+        "mesh_backend": "trimesh"
+      }
+    },
+    {
+      "track": "track2",
+      "n": 10,
+      "quality_mean": 0.6197313685880974,
+      "quality_std": 0.03989639038310226,
+      "quality_min": 0.5799141463213281,
+      "quality_max": 0.7308016571824333,
+      "latency_ms_mean": 18.423291699999922,
+      "kwargs": {
+        "resolution": "6"
+      }
+    },
+    {
+      "track": "track1_trained",
+      "n": 10,
+      "quality_mean": 0.8187730663678432,
+      "quality_std": 0.08838651656718839,
+      "quality_min": 0.6638602236617149,
+      "quality_max": 0.9165569467989777,
+      "latency_ms_mean": 3.0863498000000433,
+      "kwargs": {
+        "track1_checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track1.pt",
+        "mesh_backend": "trimesh"
+      }
+    },
+    {
+      "track": "track2_trained",
+      "n": 10,
+      "quality_mean": 0.6833942902113701,
+      "quality_std": 0.01974606365787104,
+      "quality_min": 0.6442996663547381,
+      "quality_max": 0.7113010617099098,
+      "latency_ms_mean": 10.132128899999948,
+      "kwargs": {
+        "track2_checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track2.pt"
+      }
+    },
+    {
+      "track": "track1_sequence",
+      "n": 10,
+      "quality_mean": 0.6279390917105785,
+      "quality_std": 0.025580915528347854,
+      "quality_min": 0.5673811995313237,
+      "quality_max": 0.6663793649147975,
+      "latency_ms_mean": 5.459224900000059,
+      "kwargs": {
+        "track1_checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track1_seq.pt",
+        "mesh_backend": "trimesh"
+      }
+    },
+    {
+      "track": "track2_sdf",
+      "n": 10,
+      "quality_mean": 0.7081975058839176,
+      "quality_std": 0.01409683367668313,
+      "quality_min": 0.6829406664274561,
+      "quality_max": 0.7292826682910398,
+      "latency_ms_mean": 138.5260917,
+      "kwargs": {
+        "track2_checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track2_sdf.pt"
+      }
+    }
+  ],
+  "unit_box": {
+    "track1": {
+      "track": "track1",
+      "quality": 0.99166666635,
+      "chamfer": 0.0,
+      "volume_iou": 1.0,
+      "latency_ms": 1.801207999999832,
+      "kwargs": {}
+    },
+    "track1_trained": {
+      "track": "track1_trained",
+      "quality": 0.9062031729634542,
+      "chamfer": 0.12028096047927508,
+      "volume_iou": 0.6875,
+      "latency_ms": 4.099000000000075,
+      "kwargs": {
+        "track1_checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track1.pt"
+      }
+    },
+    "track1_sequence": {
+      "track": "track1_sequence",
+      "quality": 0.6262156917062964,
+      "chamfer": 0.2206074343833464,
+      "volume_iou": 0.4166666666666667,
+      "latency_ms": 4.669374999999754,
+      "kwargs": {
+        "track1_checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track1_seq.pt"
+      }
+    },
+    "track2": {
+      "track": "track2",
+      "quality": 0.5865933700843554,
+      "chamfer": 0.33371987142445975,
+      "volume_iou": 0.5222800925925926,
+      "latency_ms": 38.94708299999916,
+      "kwargs": {
+        "resolution": "8"
+      }
+    },
+    "track2_trained": {
+      "track": "track2_trained",
+      "quality": 0.6580487578977717,
+      "chamfer": 0.19197365564707275,
+      "volume_iou": 0.8052662037037037,
+      "latency_ms": 7.194583000000421,
+      "kwargs": {
+        "track2_checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track2.pt"
+      }
+    },
+    "track2_sdf": {
+      "track": "track2_sdf",
+      "quality": 0.6469219490065306,
+      "chamfer": 0.2647345089825205,
+      "volume_iou": 0.8052662037037037,
+      "latency_ms": 74.49654200000033,
+      "kwargs": {
+        "track2_checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track2_sdf.pt"
+      }
+    }
+  }
+}

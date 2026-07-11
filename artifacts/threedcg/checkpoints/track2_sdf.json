@@ -1,0 +1,6 @@
+{
+  "track": "track2_sdf",
+  "final_loss": 0.3767452836036682,
+  "epochs": 12,
+  "checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track2_sdf.pt"
+}

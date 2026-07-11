@@ -40,10 +40,12 @@ import {
     stepEmbodiedCreature,
     type EmbodiedSnnSnapshot,
     type EmbodiedSnnCreature,
+    type SnnConstructRequest,
     type SnnEnvironmentStimulus,
     type SnnLearningGoal,
     type SnnTraceEvent,
 } from './snn/lif';
+import { pickVisualShapeInspiration, shapeMatchScore } from './snn/visionShape';
 import {
     deriveSnnChatSignal,
     deriveSnnRenderState,
@@ -51,6 +53,11 @@ import {
     type SnnRenderState,
 } from './snn/modules';
 import { encodeEdenSnnModelFile } from './snn/modelFile';
+import { clearGeneratedBodies, ensureGeneratedBody, getGeneratedBody } from './snn/generatedBodyRegistry';
+import {
+    fetchGeneratedManifest,
+    layoutGeneratedSpawns,
+} from './snn/generatedAssets';
 
 
 interface Player {
@@ -108,6 +115,20 @@ const creatureIdFromSnnName = (name?: string) => {
 
 const isSnnLifeName = (name?: string) => creatureIdFromSnnName(name) !== null;
 
+/** Primitive spam / self-copies must never be vision targets or sync fuel. */
+const isSnnBuildJunk = (id: string, name?: string) => (
+    id.startsWith('snn-build-')
+    || (name?.startsWith('SNN build:') ?? false)
+    || (name?.includes('SNN build:') ?? false)
+);
+
+const isQualityVisionTarget = (id: string, name?: string) => (
+    id.startsWith('generated-')
+    || id.startsWith('vision-prop-')
+    || (name?.startsWith('gen:') ?? false)
+    || (name?.startsWith('world:') ?? false)
+);
+
 
 interface MaterialData {
     emissive?: string;
@@ -126,13 +147,69 @@ interface PostFXSettings {
     smaa: { enabled: boolean };
 }
 
-const GLBModel = ({ url, isSelected, onClick, onContextMenu }: { url: string, isSelected?: boolean, onClick?: (e: any) => void, onContextMenu?: (e: any) => void }) => {
-    // Ensure URL is absolute
-    const absoluteUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+const resolveGlbUrl = (url: string) => {
+    // data:/http(s): leave as-is. blob: is fragile with drei useGLTF — prefer data:.
+    if (
+        url.startsWith('data:')
+        || url.startsWith('http://')
+        || url.startsWith('https://')
+        || url.startsWith('blob:')
+    ) {
+        return url;
+    }
+    // Local Vite public assets (e.g. /generated/*.glb) must stay same-origin.
+    // Rewriting them onto the realtime API host made auto-spawn look like "nothing happened".
+    if (url.startsWith('/')) {
+        return url;
+    }
+    return `${API_BASE_URL}/${url}`;
+};
 
+/** Catch useGLTF failures so one bad URL does not tear down the whole Canvas. */
+class GlbErrorBoundary extends React.Component<
+    { fallback: React.ReactNode; children: React.ReactNode },
+    { failed: boolean }
+> {
+    state = { failed: false };
+
+    static getDerivedStateFromError() {
+        return { failed: true };
+    }
+
+    componentDidCatch(error: unknown) {
+        console.warn('[GLBModel] load failed, using fallback geometry', error);
+    }
+
+    componentDidUpdate(prevProps: { children: React.ReactNode }) {
+        if (prevProps.children !== this.props.children && this.state.failed) {
+            this.setState({ failed: false });
+        }
+    }
+
+    render() {
+        if (this.state.failed) return this.props.fallback;
+        return this.props.children;
+    }
+}
+
+const GLBModelInner = ({
+    url,
+    position = [0, 0, 0],
+    scale = [1, 1, 1],
+    isSelected,
+    onClick,
+    onContextMenu,
+}: {
+    url: string;
+    position?: [number, number, number] | number[];
+    scale?: [number, number, number] | number[];
+    isSelected?: boolean;
+    onClick?: (e: any) => void;
+    onContextMenu?: (e: any) => void;
+}) => {
+    const absoluteUrl = resolveGlbUrl(url);
     const { scene } = useGLTF(absoluteUrl);
-    const clonedScene = useMemo(() => scene.clone(), [scene]);
-
+    const clonedScene = useMemo(() => scene.clone(true), [scene]);
 
     useEffect(() => {
         clonedScene.traverse((child) => {
@@ -140,15 +217,11 @@ const GLBModel = ({ url, isSelected, onClick, onContextMenu }: { url: string, is
                 const mesh = child as THREE.Mesh;
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
-                if (isSelected) {
-                    // Highlight effect
-                    if (mesh.material instanceof THREE.MeshStandardMaterial) {
+                if (mesh.material instanceof THREE.MeshStandardMaterial) {
+                    if (isSelected) {
                         mesh.material.emissive = new THREE.Color('#00ffff');
                         mesh.material.emissiveIntensity = 0.3;
-                    }
-                } else {
-                    // Reset emissive (might need to store original material)
-                    if (mesh.material instanceof THREE.MeshStandardMaterial) {
+                    } else {
                         mesh.material.emissive = new THREE.Color('#000000');
                         mesh.material.emissiveIntensity = 0;
                     }
@@ -157,14 +230,48 @@ const GLBModel = ({ url, isSelected, onClick, onContextMenu }: { url: string, is
         });
     }, [clonedScene, isSelected]);
 
-    return <primitive
-        object={clonedScene}
-        onClick={onClick}
-        onContextMenu={onContextMenu}
-    />;
+    return (
+        <group
+            position={position as [number, number, number]}
+            scale={scale as [number, number, number]}
+            onClick={onClick}
+            onContextMenu={onContextMenu}
+        >
+            <primitive object={clonedScene} />
+        </group>
+    );
 };
 
-const PlayerObj = ({ position, rotation = [0, 0, 0], color, isNpc, name, shape = 'sphere', size = [1, 1, 1], geometryData, materialData, shaderType, onClick, onContextMenu, isSelected, glbUrl }: {
+const GLBModel = (props: {
+    url: string;
+    position?: [number, number, number] | number[];
+    scale?: [number, number, number] | number[];
+    isSelected?: boolean;
+    onClick?: (e: any) => void;
+    onContextMenu?: (e: any) => void;
+    fallback?: React.ReactNode;
+}) => {
+    const { fallback, ...inner } = props;
+    const boxFallback = fallback ?? (
+        <mesh
+            position={props.position as [number, number, number] | undefined}
+            onClick={props.onClick}
+            onContextMenu={props.onContextMenu}
+        >
+            <boxGeometry args={[1, 1, 1]} />
+            <meshStandardMaterial color="#88cc88" />
+        </mesh>
+    );
+    return (
+        <GlbErrorBoundary fallback={boxFallback} key={props.url}>
+            <React.Suspense fallback={boxFallback}>
+                <GLBModelInner {...inner} />
+            </React.Suspense>
+        </GlbErrorBoundary>
+    );
+};
+
+const PlayerObj = ({ position, rotation = [0, 0, 0], color, isNpc, name, shape = 'sphere', size = [1, 1, 1], geometryData, materialData, shaderType, onClick, onContextMenu, isSelected, glbUrl, labelScale = 1, beacon = false }: {
     position: [number, number, number],
     rotation?: number[],
     color: string,
@@ -179,7 +286,11 @@ const PlayerObj = ({ position, rotation = [0, 0, 0], color, isNpc, name, shape =
     onClick?: (e: any) => void,
     onContextMenu?: (e: any) => void,
     isSelected?: boolean,
-    glbUrl?: string
+    glbUrl?: string,
+    /** Larger floating labels for biotope actors so learning is readable. */
+    labelScale?: number,
+    /** Ground ring so spawned/generated assets are hard to miss. */
+    beacon?: boolean,
 }) => {
     // Geometry Switch
     const getGeometry = () => {
@@ -211,14 +322,16 @@ const PlayerObj = ({ position, rotation = [0, 0, 0], color, isNpc, name, shape =
         }
     };
 
-    // Material props
+    // Keep NPC/SNN colors — forcing pure red hid morph/aura/construct feedback entirely.
     const matProps = {
-        color: isNpc ? '#ff0000' : color,
+        color,
         side: THREE.DoubleSide,
-        emissive: isSelected ? '#00ffff' : (materialData?.emissive || '#000000'),
-        emissiveIntensity: isSelected ? 0.3 : (materialData?.emissiveIntensity ?? 0),
-        metalness: materialData?.metalness ?? 0,
-        roughness: materialData?.roughness ?? 1,
+        emissive: isSelected ? '#00ffff' : (materialData?.emissive || (isNpc ? color : '#000000')),
+        emissiveIntensity: isSelected
+            ? 0.45
+            : (materialData?.emissiveIntensity ?? (isNpc ? 0.35 : 0)),
+        metalness: materialData?.metalness ?? (isNpc ? 0.15 : 0),
+        roughness: materialData?.roughness ?? (isNpc ? 0.45 : 1),
         transparent: materialData?.transparent || false,
         opacity: materialData?.opacity ?? 1,
     };
@@ -226,6 +339,8 @@ const PlayerObj = ({ position, rotation = [0, 0, 0], color, isNpc, name, shape =
     const [level, setLevel] = useState<'high' | 'low'>('high');
     const groupRef = useRef<THREE.Group>(null);
     const shaderMatRef = useRef<THREE.ShaderMaterial | null>(null);
+    const beaconRef = useRef<THREE.Mesh>(null);
+    const labelHeight = Math.max(size?.[1] ?? 1, 0.8) * 0.55 + 1.15;
 
     // Create or update shader material
     useEffect(() => {
@@ -239,12 +354,17 @@ const PlayerObj = ({ position, rotation = [0, 0, 0], color, isNpc, name, shape =
     useFrame((state, delta) => {
         if (groupRef.current) {
             const dist = state.camera.position.distanceTo(groupRef.current.position);
-            if (dist > 20 && level === 'high') setLevel('low');
-            if (dist <= 20 && level === 'low') setLevel('high');
+            if (dist > 28 && level === 'high') setLevel('low');
+            if (dist <= 28 && level === 'low') setLevel('high');
         }
         // Animate shader
         if (shaderMatRef.current && shaderMatRef.current.uniforms.time) {
             shaderMatRef.current.uniforms.time.value += delta;
+        }
+        if (beaconRef.current) {
+            beaconRef.current.rotation.z += delta * 1.2;
+            const pulse = 1 + Math.sin(state.clock.elapsedTime * 3) * 0.08;
+            beaconRef.current.scale.set(pulse, pulse, pulse);
         }
     });
 
@@ -259,12 +379,33 @@ const PlayerObj = ({ position, rotation = [0, 0, 0], color, isNpc, name, shape =
         if (onClick) onClick(e);
     };
 
+    const glbScale = Math.max(size[0] ?? 1, size[1] ?? 1, size[2] ?? 1);
+
     return (
         <group position={position} rotation={rotation as [number, number, number]} ref={groupRef}>
+            {glbUrl ? (
+                <GLBModel
+                    url={glbUrl}
+                    position={[0, 0, 0]}
+                    scale={[glbScale, glbScale, glbScale]}
+                    isSelected={isSelected}
+                    onClick={handleClick}
+                    onContextMenu={handleContextMenu}
+                    fallback={
+                        <mesh onClick={handleClick} onContextMenu={handleContextMenu}>
+                            <boxGeometry args={[glbScale, glbScale, glbScale]} />
+                            <meshStandardMaterial
+                                color={color}
+                                emissive={color}
+                                emissiveIntensity={0.55}
+                                metalness={0.2}
+                                roughness={0.35}
+                            />
+                        </mesh>
+                    }
+                />
+            ) : (
             <mesh onClick={handleClick} onContextMenu={handleContextMenu}>
-                {glbUrl ? (
-                    <GLBModel url={glbUrl} isSelected={isSelected} onClick={handleClick} onContextMenu={handleContextMenu} />
-                ) : (
                     <>
                         {getGeometry()}
                         {shaderMatRef.current ? (
@@ -273,17 +414,30 @@ const PlayerObj = ({ position, rotation = [0, 0, 0], color, isNpc, name, shape =
                             <meshStandardMaterial {...matProps} />
                         )}
                     </>
-                )}
             </mesh>
+            )}
+            {beacon && (
+                <mesh ref={beaconRef} position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[0.55, 0.85, 32]} />
+                    <meshBasicMaterial color={color} transparent opacity={0.75} side={THREE.DoubleSide} />
+                </mesh>
+            )}
             {level === 'high' && (
                 <Billboard
                     follow={true}
                     lockX={false}
                     lockY={false}
                     lockZ={false}
-                    position={[0, 1.2, 0]}
+                    position={[0, labelHeight, 0]}
                 >
-                    <Text fontSize={0.3} color="white" anchorX="center" anchorY="middle">
+                    <Text
+                        fontSize={0.28 * labelScale}
+                        color={isNpc ? color : 'white'}
+                        outlineWidth={0.02}
+                        outlineColor="#000000"
+                        anchorX="center"
+                        anchorY="middle"
+                    >
                         {name}
                     </Text>
                 </Billboard>
@@ -477,6 +631,7 @@ const GameScene = ({
     onSnnEntityCreate,
     onSnnEntityUpdate,
     onSnnTrace,
+    onSnnConstruct,
 }: {
     players: Map<string, Player>;
     myId: string | null;
@@ -511,6 +666,7 @@ const GameScene = ({
     onSnnEntityCreate: (creature: EmbodiedSnnCreature, renderState: SnnRenderState) => void;
     onSnnEntityUpdate: (creature: EmbodiedSnnCreature, renderState: SnnRenderState) => void;
     onSnnTrace: (creature: EmbodiedSnnCreature, events: SnnTraceEvent[]) => void;
+    onSnnConstruct?: (creature: EmbodiedSnnCreature, request: SnnConstructRequest) => void;
 }) => {
     const movementRef = useRef({ forward: false, backward: false, left: false, right: false });
     const myPosRef = useRef(new THREE.Vector3(0, 0.5, 0));
@@ -606,13 +762,15 @@ const GameScene = ({
 
         for (const player of players.values()) {
             if (player.id === myId || player.id === creature.id || player.id.startsWith('snn-life') || isSnnLifeName(player.name)) continue;
+            if (isSnnBuildJunk(player.id, player.name)) continue;
             const distance = Math.hypot(player.x - creature.x, player.z - creature.z);
             const proximity = Math.max(0, 1 - distance / 8);
             const autonomous = player.isNpc ? 0.45 : 0;
             const shaderStimulus = player.shader && player.shader !== 'none' ? 0.28 : 0;
             const glow = Math.min(0.35, player.material?.emissiveIntensity ?? 0);
             const frequencyStimulus = player.frequency ? Math.min(0.25, Math.abs(player.frequency) / 1000) : 0;
-            const score = proximity * (0.2 + autonomous + shaderStimulus + glow + frequencyStimulus);
+            const qualityBoost = isQualityVisionTarget(player.id, player.name) ? 0.55 : 0;
+            const score = proximity * (0.2 + autonomous + shaderStimulus + glow + frequencyStimulus + qualityBoost);
 
             if (score > nearestScore) {
                 nearestScore = score;
@@ -637,6 +795,31 @@ const GameScene = ({
         const ambientIntensity = Math.min(1.4, bloom + rgbShift + film + vignette + rain);
         const overload = Math.max(0, nearestScore + ambientIntensity - 0.75);
 
+        // Vision: only quality references (Python /generated GLBs + static props).
+        // Never imitate previous SNN primitive builds (self-copy loop).
+        const visionSources = Array.from(players.values()).filter((player) => {
+            if (player.id === myId || player.id === creature.id) return false;
+            if (player.id.startsWith('snn-life') || isSnnLifeName(player.name)) return false;
+            if (isSnnBuildJunk(player.id, player.name)) return false;
+            return true;
+        });
+        const preferred = visionSources.filter((player) => isQualityVisionTarget(player.id, player.name));
+        const vision = pickVisualShapeInspiration(
+            creature,
+            preferred.length > 0 ? preferred : visionSources,
+            (id, name) => id.startsWith('snn-life') || isSnnLifeName(name) || id === myId || isSnnBuildJunk(id, name),
+        );
+        const visionMatch = vision
+            ? shapeMatchScore(creature.body, vision)
+            : undefined;
+
+        // Prefer approaching the visually salient object when seeking.
+        if (vision && vision.salience >= nearestScore * 0.85) {
+            nearestX = vision.x;
+            nearestZ = vision.z;
+            nearestScore = Math.max(nearestScore, vision.salience);
+        }
+
         return {
             nearestX,
             nearestZ,
@@ -646,6 +829,12 @@ const GameScene = ({
             collisionIntensity: collision.intensity,
             collisionNormalX: collision.normalX,
             collisionNormalZ: collision.normalZ,
+            visionWidth: vision?.width,
+            visionHeight: vision?.height,
+            visionDepth: vision?.depth,
+            visionSalience: vision?.salience,
+            visionLabel: vision?.label,
+            visionMatch,
         };
     }, [measureSnnCollision, myId, players, postProcessingEnabled, postProcessingSettings, rainIntensity, rainManualEnabled]);
 
@@ -800,6 +989,15 @@ const GameScene = ({
                 if (resolveSnnCollisions(creature)) {
                     stimulus.collisionIntensity = Math.max(stimulus.collisionIntensity ?? 0, 1);
                 }
+                if (creature.pendingConstruct) {
+                    if (onSnnConstruct) {
+                        onSnnConstruct(creature, creature.pendingConstruct);
+                    } else {
+                        // Fallback: never silently drop builds if handler is missing for a frame.
+                        console.warn('[SNN] pendingConstruct without onSnnConstruct', creature.id);
+                    }
+                    creature.pendingConstruct = null;
+                }
                 if (snnEntityIds[creature.id]) {
                     onSnnEntityUpdate(creature, renderState);
                 } else {
@@ -853,16 +1051,46 @@ const GameScene = ({
                     const spawnX = me ? me.x + Math.cos(angle) * radius : worldOffset.x + Math.cos(angle) * radius;
                     const spawnZ = me ? me.z + Math.sin(angle) * radius : worldOffset.z + Math.sin(angle) * radius;
                     creature = createEmbodiedSnnCreature(spawnX, spawnZ, creatureId, creatureName);
+                    let restored = false;
                     const stored = window.localStorage.getItem(snnStorageKey(creatureId));
                     if (stored) {
                         try {
                             restoreEmbodiedSnnCreature(creature, JSON.parse(stored) as EmbodiedSnnSnapshot);
+                            restored = true;
+                            // Revive energy so long-running localStorage never freezes constructs.
+                            creature.energy = Math.max(creature.energy, 0.55);
+                            creature.lastConstructAtMs = undefined;
                         } catch {
                             window.localStorage.removeItem(snnStorageKey(creatureId));
                         }
                     }
+                    // Procedural body seed is for first spawn only.
+                    // After restore, keep learned body extents / weights from snapshot.
+                    if (!restored) {
+                        try {
+                            const body = ensureGeneratedBody(creatureId);
+                            creature.body.widthX = Math.max(0.55, body.bounds[0]);
+                            creature.body.heightY = Math.max(0.55, body.bounds[1]);
+                            creature.body.depthZ = Math.max(0.55, body.bounds[2]);
+                        } catch (err) {
+                            console.warn('procedural body failed, using default geometry', err);
+                        }
+                    } else {
+                        try {
+                            ensureGeneratedBody(creatureId); // keep seed registry warm; do not overwrite body
+                        } catch {
+                            // ignore
+                        }
+                    }
                     onSnnEntityCreate(creature, getSnnRenderState(creature.id));
                     changed = true;
+                } else {
+                    // Ensure body URL exists after hot reload / re-enable.
+                    try {
+                        ensureGeneratedBody(creatureId);
+                    } catch {
+                        // ignore
+                    }
                 }
                 nextCreatures.push(creature);
             }
@@ -885,6 +1113,7 @@ const GameScene = ({
         Object.keys(window.localStorage)
             .filter((key) => key.startsWith(SNN_STORAGE_PREFIX))
             .forEach((key) => window.localStorage.removeItem(key));
+        clearGeneratedBodies();
         snnCreaturesRef.current = [];
         snnSaveAccumulatorRef.current = {};
         snnCreateAttemptAtRef.current = {};
@@ -944,6 +1173,10 @@ const GameScene = ({
                     player.y,
                     player.z - worldOffset.z
                 ];
+                const isGenerated = player.id.startsWith('generated-') || player.name?.startsWith('gen:');
+                const isConstruct = player.id.startsWith('snn-build-') || player.name?.startsWith('SNN build:');
+                const isVisionProp = player.id.startsWith('vision-prop-');
+                const isSnnActor = player.id.startsWith('snn-life') || isSnnLifeName(player.name);
                 return (
                     <PlayerObj
                         key={`${player.id}-${player.shape}-${player.size?.join(',')}`}
@@ -959,6 +1192,8 @@ const GameScene = ({
                         shaderType={player.shader}
                         glbUrl={player.glbUrl}
                         isSelected={player.id === selectedId}
+                        labelScale={isGenerated || isConstruct || isSnnActor ? 1.35 : isVisionProp ? 1.1 : 1}
+                        beacon={isGenerated || isConstruct || isSnnActor}
                         onClick={() => onObjectSelect(player.id)}
                         onContextMenu={(e) => {
                             e.nativeEvent?.preventDefault?.();
@@ -976,13 +1211,20 @@ const GameScene = ({
             {snnCreatures.map((creature) => {
                 if (snnEntityIds[creature.id]) return null;
                 const renderState = getSnnRenderState(creature.id);
-                const bodyDescription = describeEmbodiedSnnBody(creature, renderState.scale);
+                // Amplify live mesh so morph learning is obvious without a magnifying glass.
+                const bodyDescription = describeEmbodiedSnnBody(creature, renderState.scale * 1.55);
                 const localPos: [number, number, number] = [
                     creature.x - worldOffset.x,
                     creature.y,
                     creature.z - worldOffset.z
                 ];
                 const energy = Math.round(creature.energy * 100);
+                const body = creature.body;
+                const dimLabel = body
+                    ? `W${body.widthX.toFixed(2)} H${body.heightY.toFixed(2)} D${body.depthZ.toFixed(2)}`
+                    : '';
+                // Prefer live custom geometry (tracks morph learning). Skip fragile remote GLB.
+                // Procedural body seed still initializes body extents via ensureGeneratedBody.
                 return (
                     <PlayerObj
                         key={creature.id}
@@ -990,16 +1232,18 @@ const GameScene = ({
                         rotation={bodyDescription.rotation}
                         color={renderState.auraColor}
                         isNpc
-                        name={`${creature.name} ${renderState.label} ${energy}%`}
+                        name={`${creature.name} · ${renderState.label} · ${energy}% · ${dimLabel}`}
                         shape={bodyDescription.shape}
                         size={bodyDescription.size}
                         geometryData={bodyDescription.geometry}
                         materialData={{
                             emissive: renderState.auraColor,
-                            emissiveIntensity: renderState.emissiveIntensity,
-                            metalness: 0.1,
-                            roughness: 0.25,
+                            emissiveIntensity: Math.max(0.55, renderState.emissiveIntensity),
+                            metalness: 0.12,
+                            roughness: 0.28,
                         }}
+                        labelScale={1.45}
+                        beacon
                     />
                 );
             })}
@@ -1287,9 +1531,172 @@ export default function Game() {
     const [nanoAvailable, setNanoAvailable] = useState(false);
     const [debugActors, setDebugActors] = useState<DebugActorSnapshot[]>([]);
     const [debugWorldPrompt, setDebugWorldPrompt] = useState('');
-    const [snnLifeEnabled, setSnnLifeEnabled] = useState(false);
+    // Autonomous biotope: on by default — no setup required for learning to run.
+    const [snnLifeEnabled, setSnnLifeEnabled] = useState(true);
     const [snnLifeCount, setSnnLifeCount] = useState(2);
-    const [snnLearningGoal, setSnnLearningGoal] = useState<SnnLearningGoal>('wander');
+    // observe3dcg: morph toward Python-exported meshes — no primitive construct spam.
+    const [snnLearningGoal, setSnnLearningGoal] = useState<SnnLearningGoal>('observe3dcg');
+    const generatedSpawnedRef = useRef(false);
+    const [biotopeHud, setBiotopeHud] = useState({
+        generated: 0,
+        constructs: 0,
+        morphMatch: 0,
+        visionLabel: '',
+        lastEvent: 'waiting…',
+        bodySummary: '',
+        learningTicks: 0,
+        constructDrive: 0,
+        energy: 1,
+    });
+    const biotopeHudRef = useRef(biotopeHud);
+    biotopeHudRef.current = biotopeHud;
+
+    // Drop local primitive spam left over from the old construct loop (never sync fuel).
+    useEffect(() => {
+        if (!snnLifeEnabled) return;
+        setPlayers((prev) => {
+            let changed = false;
+            const next = new Map(prev);
+            for (const [id, player] of prev) {
+                if (isSnnBuildJunk(id, player.name)) {
+                    next.delete(id);
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [snnLifeEnabled]);
+
+    // Static shape props for visual inspiration (crate / pillar / boulder). No UI.
+    useEffect(() => {
+        if (!snnLifeEnabled) return;
+        setPlayers((prev) => {
+            if (prev.has('vision-prop-box') && prev.has('vision-prop-tall') && prev.has('vision-prop-sphere')) {
+                return prev;
+            }
+            const next = new Map(prev);
+            const me = myId ? prev.get(myId) : undefined;
+            const origin = me
+                ? { x: me.x, z: me.z }
+                : { x: worldOffset.x, z: worldOffset.z };
+            next.set('vision-prop-box', {
+                id: 'vision-prop-box',
+                x: origin.x + 3.2,
+                y: 0.55,
+                z: origin.z + 1.2,
+                color: '#e8b84a',
+                name: 'world:crate (imitate me)',
+                isNpc: true,
+                shape: 'box',
+                size: [1.15, 1.15, 1.15],
+                material: { emissive: '#e8b84a', emissiveIntensity: 0.4, metalness: 0.1, roughness: 0.5 },
+            });
+            next.set('vision-prop-tall', {
+                id: 'vision-prop-tall',
+                x: origin.x - 2.8,
+                y: 1.1,
+                z: origin.z + 2.5,
+                color: '#5aa8ff',
+                name: 'world:pillar (imitate me)',
+                isNpc: true,
+                shape: 'cylinder',
+                size: [0.65, 2.2, 0.65],
+                material: { emissive: '#5aa8ff', emissiveIntensity: 0.4, metalness: 0.1, roughness: 0.5 },
+            });
+            next.set('vision-prop-sphere', {
+                id: 'vision-prop-sphere',
+                x: origin.x + 1.5,
+                y: 0.7,
+                z: origin.z - 3.0,
+                color: '#6fdc6f',
+                name: 'world:boulder (imitate me)',
+                isNpc: true,
+                shape: 'sphere',
+                size: [1.4, 1.4, 1.4],
+                material: { emissive: '#6fdc6f', emissiveIntensity: 0.4, metalness: 0.1, roughness: 0.5 },
+            });
+            return next;
+        });
+    }, [snnLifeEnabled, myId, worldOffset.x, worldOffset.z]);
+
+    // Auto-spawn Python-exported 3DCG GLBs from /generated/manifest.json (no UI).
+    useEffect(() => {
+        if (!snnLifeEnabled) {
+            generatedSpawnedRef.current = false;
+            return;
+        }
+        if (generatedSpawnedRef.current) return;
+        let cancelled = false;
+        (async () => {
+            const manifest = await fetchGeneratedManifest();
+            if (cancelled) return;
+            if (!manifest || manifest.assets.length === 0) {
+                setBiotopeHud((h) => ({ ...h, lastEvent: 'no /generated/manifest.json' }));
+                setChatMessages((msgs) => [
+                    ...msgs.slice(-40),
+                    {
+                        id: 'SNN',
+                        name: '3DCG',
+                        text: 'generated assets missing — run export into EDEN/public/generated/',
+                    },
+                ]);
+                return;
+            }
+            generatedSpawnedRef.current = true;
+            setPlayers((prev) => {
+                const me = myId ? prev.get(myId) : undefined;
+                const origin = me
+                    ? { x: me.x, z: me.z }
+                    : { x: worldOffset.x, z: worldOffset.z };
+                // Closer ring so spawns sit in the camera frustum on load.
+                const spawns = layoutGeneratedSpawns(manifest.assets, origin, 3.8);
+                const next = new Map(prev);
+                let added = 0;
+                for (const spawn of spawns) {
+                    if (next.has(spawn.id)) continue;
+                    next.set(spawn.id, {
+                        id: spawn.id,
+                        x: spawn.x,
+                        y: Math.max(0.9, spawn.y),
+                        z: spawn.z,
+                        color: spawn.track?.includes('sdf') ? '#9bdcff' : '#ff9bd8',
+                        name: `gen:${spawn.family ?? spawn.name}${spawn.quality != null ? ` q${(spawn.quality * 100).toFixed(0)}` : ''} (${spawn.track ?? '3dcg'})`,
+                        isNpc: true,
+                        shape: 'box',
+                        // Larger default so even GLB fallback is obvious.
+                        size: [2.2, 2.2, 2.2],
+                        glbUrl: spawn.url,
+                        material: {
+                            emissive: spawn.track?.includes('sdf') ? '#9bdcff' : '#ff9bd8',
+                            emissiveIntensity: 0.55,
+                            metalness: 0.2,
+                            roughness: 0.3,
+                        },
+                    });
+                    added += 1;
+                }
+                if (added > 0) {
+                    setBiotopeHud((h) => ({
+                        ...h,
+                        generated: h.generated + added,
+                        lastEvent: `spawned ${added} GLB(s)`,
+                    }));
+                    setChatMessages((msgs) => [
+                        ...msgs.slice(-40),
+                        {
+                            id: 'SNN',
+                            name: '3DCG',
+                            text: `★ auto-spawned ${added} generated GLB(s) near you — look for glowing rings`,
+                        },
+                    ]);
+                }
+                return next;
+            });
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [snnLifeEnabled, myId, worldOffset.x, worldOffset.z]);
     const [selectedSnnExportId, setSelectedSnnExportId] = useState(() => formatSnnCreatureId(0));
     const [snnTraceEvents, setSnnTraceEvents] = useState<SnnTraceEvent[]>([]);
     const [snnResetNonce, setSnnResetNonce] = useState(0);
@@ -1536,6 +1943,16 @@ export default function Game() {
         URL.revokeObjectURL(url);
     }, [snnLearningGoal]);
 
+    const handleSnnConstruct = useCallback((_creature: EmbodiedSnnCreature, _request: SnnConstructRequest) => {
+        // Intentionally disabled: box/sphere/cylinder spam is not commercial 3DCG learning
+        // and floods the realtime server. Mesh generation lives in Python quality_loop /
+        // export → EDEN/public/generated/*.glb (observe those, don't clone primitives).
+        setBiotopeHud((h) => ({
+            ...h,
+            lastEvent: 'construct disabled — train meshes in Python threedcg',
+        }));
+    }, []);
+
     const handleSnnTrace = useCallback((creature: EmbodiedSnnCreature, events: SnnTraceEvent[]) => {
         const visibleEvents = events.filter((event) => event.kind === 'spike' || event.kind === 'weight' || event.kind === 'global_signal' || event.kind === 'body');
         if (visibleEvents.length === 0) return;
@@ -1547,6 +1964,39 @@ export default function Game() {
             ...previous,
             [creature.id]: deriveSnnRenderState(visibleEvents, previous[creature.id] ?? initialSnnRenderState),
         }));
+        const constructEvent = visibleEvents.find(
+            (event) => event.kind === 'global_signal' && event.label === 'construct',
+        );
+        const bodyEvent = visibleEvents.find((event) => event.kind === 'body');
+        if (bodyEvent?.meta || constructEvent) {
+            const match = typeof bodyEvent?.meta?.vision_match === 'number' ? bodyEvent.meta.vision_match : biotopeHudRef.current.morphMatch;
+            const w = typeof bodyEvent?.meta?.body_width === 'number' ? bodyEvent.meta.body_width : 0;
+            const h = typeof bodyEvent?.meta?.body_height === 'number' ? bodyEvent.meta.body_height : 0;
+            const d = typeof bodyEvent?.meta?.body_depth === 'number' ? bodyEvent.meta.body_depth : 0;
+            const visionLabel = typeof bodyEvent?.meta?.vision_label === 'string' ? bodyEvent.meta.vision_label : '';
+            const energy = typeof bodyEvent?.meta?.energy === 'number' ? bodyEvent.meta.energy : creature.energy;
+            const drive = typeof constructEvent?.meta?.drive === 'number' ? constructEvent.meta.drive : biotopeHudRef.current.constructDrive;
+            // Throttle HUD updates (~4 Hz) to avoid React thrash from every frame.
+            // Always refresh immediately on construct.
+            if (constructEvent || (biotopeHudRef.current.learningTicks % 8) === 0) {
+                setBiotopeHud((prev) => ({
+                    ...prev,
+                    morphMatch: match,
+                    visionLabel: visionLabel || prev.visionLabel,
+                    bodySummary: w || h || d ? `W${w.toFixed(2)} H${h.toFixed(2)} D${d.toFixed(2)}` : prev.bodySummary,
+                    learningTicks: prev.learningTicks + 1,
+                    constructDrive: drive,
+                    energy,
+                    lastEvent: constructEvent
+                        ? `${creature.name} construct ${String(constructEvent.meta?.shape ?? '')}`
+                        : match > 0.55
+                            ? `${creature.name} morph match ${(match * 100).toFixed(0)}%`
+                            : prev.lastEvent,
+                }));
+            } else {
+                setBiotopeHud((prev) => ({ ...prev, learningTicks: prev.learningTicks + 1, energy }));
+            }
+        }
         const lastChatAt = snnLastChatAtRef.current[creature.id] ?? 0;
         const chatSignal = deriveSnnChatSignal(visibleEvents, lastChatAt, Date.now());
         if (chatSignal) {
@@ -1559,7 +2009,14 @@ export default function Game() {
     const handleSnnEntityCreate = useCallback((creature: EmbodiedSnnCreature, renderState: SnnRenderState) => {
         if (snnEntityIds[creature.id]) return;
         if (ws.current?.readyState !== WebSocket.OPEN) return;
-        const bodyDescription = describeEmbodiedSnnBody(creature, renderState.scale);
+        const bodyDescription = describeEmbodiedSnnBody(creature, renderState.scale * 1.55);
+        // Do not push data:/blob: glbUrl over the wire — remote clients cannot load local blobs
+        // and large data URLs thrash the realtime channel. Geometry payload is enough.
+        try {
+            ensureGeneratedBody(creature.id);
+        } catch {
+            // optional seed init only
+        }
         ws.current.send(JSON.stringify({
             type: 'createEntity',
             name: creature.name,
@@ -1571,7 +2028,11 @@ export default function Game() {
             size: bodyDescription.size,
             rotation: bodyDescription.rotation,
             geometry: bodyDescription.geometry,
-            physics: bodyDescription.physics,
+            physics: {
+                ...bodyDescription.physics,
+                collisionRadius: getGeneratedBody(creature.id)?.collisionRadius
+                    ?? bodyDescription.physics.collisionRadius,
+            },
             rig: bodyDescription.rig,
             material: {
                 emissive: renderState.auraColor,
@@ -1590,7 +2051,8 @@ export default function Game() {
         const now = Date.now();
         if (now - (snnEntityUpdateAtRef.current[creature.id] ?? 0) < 120) return;
         snnEntityUpdateAtRef.current[creature.id] = now;
-        const bodyDescription = describeEmbodiedSnnBody(creature, renderState.scale);
+        const bodyDescription = describeEmbodiedSnnBody(creature, renderState.scale * 1.55);
+        const generated = getGeneratedBody(creature.id);
 
         const updates = {
             x: creature.x,
@@ -1601,13 +2063,16 @@ export default function Game() {
             size: bodyDescription.size,
             rotation: bodyDescription.rotation,
             geometry: bodyDescription.geometry,
-            physics: bodyDescription.physics,
+            physics: {
+                ...bodyDescription.physics,
+                collisionRadius: generated?.collisionRadius ?? bodyDescription.physics.collisionRadius,
+            },
             rig: bodyDescription.rig,
             material: {
                 emissive: renderState.auraColor,
-                emissiveIntensity: renderState.emissiveIntensity,
-                metalness: 0.1,
-                roughness: 0.25,
+                emissiveIntensity: Math.max(0.55, renderState.emissiveIntensity),
+                metalness: 0.12,
+                roughness: 0.28,
             },
             isNpc: true,
         };
@@ -2048,6 +2513,57 @@ export default function Game() {
             )}
 
             {/* Desktop Debug Toggle - Only show if NOT mobile */}
+            {/* Always-on biotope HUD — evolution progress without opening debug. */}
+            {snnLifeEnabled && (
+                <div
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                        position: 'absolute',
+                        top: 10,
+                        right: 10,
+                        zIndex: 1100,
+                        minWidth: 240,
+                        maxWidth: 320,
+                        color: '#e8ffe0',
+                        background: 'linear-gradient(160deg, rgba(8,22,12,0.88), rgba(4,10,18,0.82))',
+                        border: '1px solid #3d7a4a',
+                        borderRadius: 8,
+                        padding: '10px 12px',
+                        fontSize: 12,
+                        lineHeight: 1.45,
+                        boxShadow: '0 0 18px rgba(80,220,120,0.18)',
+                        pointerEvents: 'auto',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    }}
+                >
+                    <div style={{ fontWeight: 700, color: '#9dff8f', marginBottom: 6, letterSpacing: 0.3 }}>
+                        SNN biotope · observe
+                    </div>
+                    <div>goal: <span style={{ color: '#b6ff4d' }}>{snnLearningGoal}</span></div>
+                    <div>generated GLBs: <span style={{ color: '#9bdcff' }}>{biotopeHud.generated}</span></div>
+                    <div style={{ color: '#889' }}>primitive builds: off (no server spam)</div>
+                    <div>
+                        energy:{' '}
+                        <span style={{ color: biotopeHud.energy < 0.15 ? '#ff765c' : biotopeHud.energy < 0.4 ? '#ffbf69' : '#9dff8f' }}>
+                            {(biotopeHud.energy * 100).toFixed(0)}%
+                        </span>
+                    </div>
+                    <div>
+                        morph→ref:{' '}
+                        <span style={{ color: biotopeHud.morphMatch > 0.5 ? '#ffe566' : '#ccc' }}>
+                            {(biotopeHud.morphMatch * 100).toFixed(0)}%
+                        </span>
+                    </div>
+                    <div style={{ opacity: 0.9 }}>body: {biotopeHud.bodySummary || '—'}</div>
+                    <div style={{ opacity: 0.9 }}>vision: {biotopeHud.visionLabel || '—'}</div>
+                    <div style={{ opacity: 0.85 }}>ticks: {biotopeHud.learningTicks || 0}</div>
+                    <div style={{ marginTop: 6, color: '#a8d4ff' }}>↳ {biotopeHud.lastEvent}</div>
+                    <div style={{ marginTop: 8, fontSize: 10, color: '#8aa', borderTop: '1px solid #254', paddingTop: 6 }}>
+                        Commercial meshes: Python quality_loop → export GLB → /generated. EDEN only observes / morphs.
+                    </div>
+                </div>
+            )}
+
             {!isMobile && !isDebugVisible && (
                 <button
                     onClick={(e) => { e.stopPropagation(); setIsDebugVisible(true); }}
@@ -2082,16 +2598,20 @@ export default function Game() {
                     <p>Selected: {selectedName || 'None'}</p>
                     <p style={{ color: '#9900ff' }}>Pending: {pendingCreations.length}</p>
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #333' }}>
+                        <p style={{ margin: '0 0 6px', fontSize: 11, color: '#9fc77a' }}>
+                            Auto biotope: vision→morph + build external objects; no setup needed.
+                        </p>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                             <input
                                 type="checkbox"
                                 checked={snnLifeEnabled}
                                 onChange={(e) => setSnnLifeEnabled(e.target.checked)}
                             />
-                            SNN Life
+                            SNN biotope (auto)
                         </label>
-                        <label style={{ display: 'grid', gap: 3, marginTop: 6, fontSize: 11, color: '#9fc77a' }}>
-                            Parallel models
+                        {/* Advanced knobs kept minimal; defaults are enough for hands-free learning. */}
+                        <label style={{ display: 'grid', gap: 3, marginTop: 6, fontSize: 11, color: '#667' }}>
+                            Models (optional)
                             <input
                                 type="number"
                                 min={1}
@@ -2124,6 +2644,8 @@ export default function Game() {
                                 fontSize: 11,
                             }}
                         >
+                            <option value="observe3dcg">learn: observe 3DCG exports (default)</option>
+                            <option value="imitateAndConstruct">learn: morph toward refs (no spam)</option>
                             <option value="wander">learn: wander</option>
                             <option value="seekStimulus">learn: seek stimulus</option>
                             <option value="avoidOverload">learn: avoid overload</option>
@@ -2810,6 +3332,7 @@ export default function Game() {
                     onSnnEntityCreate={handleSnnEntityCreate}
                     onSnnEntityUpdate={handleSnnEntityUpdate}
                     onSnnTrace={handleSnnTrace}
+                    onSnnConstruct={handleSnnConstruct}
                     isMobile={isMobile}
                     joystickRef={joystickRef}
                     onPositionUpdate={(pos) => { myPosRef.current.copy(pos); }}

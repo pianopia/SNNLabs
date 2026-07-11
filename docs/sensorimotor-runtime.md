@@ -189,6 +189,33 @@ bridge.sendEvents([{ kind: 'body', meta: { gait_drive: 0.4 } }]);
 Serve the Python core with `serve_runtime(runtime, port=8766)` (requires
 `websockets`).
 
+## EDEN autonomous biotope (generated bodies)
+
+Design: `docs/superpowers/specs/2026-07-11-eden-autonomous-generated-body-design.md`
+
+In the EDEN client, SNN Life is **on by default**. On spawn each creature gets a
+deterministic procedural body (seed → GLB blob URL) with no setup UI:
+
+- `EDEN/src/snn/proceduralBody.ts` — multi-part body mesh from seed
+- `EDEN/src/snn/bodyGlb.ts` — minimal glTF binary encoder
+- `EDEN/src/snn/generatedBodyRegistry.ts` — seed persistence + object URLs
+
+Learning continues via the existing embodied SNN tick (reward-modulated STDP)
+while creatures walk; users do not need to configure generation parameters.
+Python mutual training remains a later slice.
+
+### Vision → morph → external construct
+
+Default learning goal `imitateAndConstruct`:
+
+1. **Vision (coarse):** nearby object size/shape → `visionWidth/Height/Depth/Salience`
+2. **Morph reward:** improve body extents match to the seen shape (`motor:imitate_shape`)
+3. **Construct:** `motor:construct_object` places a **new world primitive** (not self-mesh)
+   with cooldown + energy cost + construct reward
+
+Helpers: `EDEN/src/snn/visionShape.ts`, `constructAction.ts`. Real RGB vision / Track1
+Blender ops remain later upgrades.
+
 ## Homeostasis and sleep replay
 
 Homeostatic offsets are **wired into ChronoPlastic thresholds**:

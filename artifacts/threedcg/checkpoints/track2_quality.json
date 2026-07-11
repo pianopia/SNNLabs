@@ -1,0 +1,22 @@
+{
+  "track": "track2_quality",
+  "final_loss": 0.40411895513534546,
+  "final_quality": 0.6425485013573335,
+  "first_quality": 0.6381182604788393,
+  "family_quality": {
+    "arch": 0.6662006976552463,
+    "body": 0.6161932311950092,
+    "box": 0.6195325512281867,
+    "capsule": 0.6124524404864413,
+    "cylinder": 0.6349530099064181,
+    "l_beam": 0.5548193062594774,
+    "pillar": 0.6537163155693017,
+    "platform": 0.5793066673381108,
+    "ring": 0.6733353657967163,
+    "sphere": 0.7141584164217303,
+    "t_joint": 0.5373298491636485,
+    "wedge": 0.6411801235313848
+  },
+  "n_families": 12,
+  "checkpoint": "/Users/nakagawa_shota/repo/valit/SNNLabs/artifacts/threedcg/checkpoints/track2_quality.pt"
+}

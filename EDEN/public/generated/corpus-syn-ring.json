@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 10,
+  "family": "ring",
+  "quality": 0.8228737119415673,
+  "path": "EDEN/public/generated/corpus-syn-ring.glb",
+  "n_vertices": 208,
+  "n_faces": 492,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-syn-ring.glb",
+  "category": "ring",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "syn-ring"
+}

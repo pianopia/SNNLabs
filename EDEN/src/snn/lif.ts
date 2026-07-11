@@ -8,7 +8,14 @@ export type SnnTraceEvent = {
   meta?: Record<string, number | string | boolean>;
 };
 
-export type SnnLearningGoal = 'wander' | 'seekStimulus' | 'avoidOverload';
+export type SnnLearningGoal =
+  | 'wander'
+  | 'seekStimulus'
+  | 'avoidOverload'
+  /** Morph body toward observed 3DCG references (no primitive spam). */
+  | 'imitateAndConstruct'
+  /** Prefer Python-exported /generated GLBs as visual targets. */
+  | 'observe3dcg';
 export type SnnNeuronType = 'lif' | 'si-lif';
 
 export type SnnEnvironmentStimulus = {
@@ -20,6 +27,24 @@ export type SnnEnvironmentStimulus = {
   collisionIntensity?: number;
   collisionNormalX?: number;
   collisionNormalZ?: number;
+  /** Coarse visual shape of nearest interesting object (normalized 0–1.4). */
+  visionWidth?: number;
+  visionHeight?: number;
+  visionDepth?: number;
+  visionSalience?: number;
+  visionLabel?: string;
+  /** Current body↔vision match 0–1 (filled by Game or recomputed). */
+  visionMatch?: number;
+};
+
+export type SnnConstructRequest = {
+  shape: 'box' | 'sphere' | 'cylinder';
+  size: [number, number, number];
+  x: number;
+  y: number;
+  z: number;
+  inspiredBy?: string;
+  seed: number;
 };
 
 export type EmbodiedSnnSnapshot = {
@@ -192,6 +217,9 @@ export type EmbodiedSnnCreature = {
   retargetAtMs: number;
   body: SnnBodyState;
   network: Network;
+  /** Cleared by Game after spawning an external object. */
+  pendingConstruct?: SnnConstructRequest | null;
+  lastConstructAtMs?: number;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -302,6 +330,14 @@ const makeNetwork = (): Network => ({
     neuron(21, 'motor:body_contract', 0.92, 38),
     neuron(22, 'motor:joint_swing', 0.9, 36),
     neuron(23, 'motor:stabilize_pose', 0.92, 40),
+    // Vision (shape inspiration) + external construction
+    neuron(24, 'sensor:vision_width', 0.8, 34),
+    neuron(25, 'sensor:vision_height', 0.8, 34),
+    neuron(26, 'sensor:vision_depth', 0.8, 34),
+    neuron(27, 'sensor:vision_novelty', 0.85, 36),
+    neuron(28, 'interneuron:shape_imitate', 0.9, 42),
+    neuron(29, 'motor:imitate_shape', 0.9, 38),
+    neuron(30, 'motor:construct_object', 0.72, 36),
   ],
   synapses: [
     synapse(0, 0, 3, 0.48),
@@ -331,6 +367,21 @@ const makeNetwork = (): Network => ({
     synapse(24, 20, 7, 0.18, 0.006, -0.007),
     synapse(25, 22, 7, 0.2, 0.006, -0.007),
     synapse(26, 23, 13, 0.22, 0.006, -0.007),
+    // vision → imitate → morph / construct
+    synapse(27, 24, 28, 0.5),
+    synapse(28, 25, 28, 0.52),
+    synapse(29, 26, 28, 0.48),
+    synapse(30, 27, 28, 0.55),
+    synapse(31, 28, 29, 0.56),
+    synapse(32, 28, 20, 0.28),
+    synapse(33, 28, 21, 0.22),
+    synapse(34, 27, 30, 0.52),
+    synapse(35, 12, 30, 0.38),
+    synapse(36, 28, 30, 0.48),
+    synapse(37, 29, 19, 0.2, 0.006, -0.007),
+    // Stronger imitate motor from vision novelty so morph starts quickly.
+    synapse(38, 27, 29, 0.4),
+    synapse(39, 28, 29, 0.42),
   ],
   pending: [],
   eligibility: [],
@@ -353,6 +404,10 @@ export const createEmbodiedSnnCreature = (
   retargetAtMs: 0,
   body: defaultBodyState(),
   network: makeNetwork(),
+  pendingConstruct: null,
+  // undefined (not 0): cooldown uses network.tMs - lastConstructAtMs.
+  // Starting at 0 blocked all constructs until tMs >= 2400ms of sim time.
+  lastConstructAtMs: undefined,
 });
 
 export const snapshotEmbodiedSnnCreature = (creature: EmbodiedSnnCreature): EmbodiedSnnSnapshot => ({
@@ -399,7 +454,9 @@ export const restoreEmbodiedSnnCreature = (
 ) => {
   if (snapshot.version !== 1 && snapshot.version !== 2 && snapshot.version !== 3) return;
 
-  creature.energy = clamp(snapshot.creature.energy, 0.05, 1);
+  // Never restore a "dead" energy floor — that permanently blocked constructs
+  // (policy requires energy > threshold and energy only drained before).
+  creature.energy = clamp(Math.max(0.45, snapshot.creature.energy), 0.05, 1);
   creature.wanderX = snapshot.creature.wanderX;
   creature.wanderZ = snapshot.creature.wanderZ;
   creature.retargetAtMs = snapshot.creature.retargetAtMs;
@@ -676,6 +733,7 @@ const updateBodyState = (
   const contract = activationFromEvents(creature.network, events, 'motor:body_contract');
   const joint = activationFromEvents(creature.network, events, 'motor:joint_swing');
   const stabilize = activationFromEvents(creature.network, events, 'motor:stabilize_pose');
+  const imitate = activationFromEvents(creature.network, events, 'motor:imitate_shape');
   const collision = clamp(stimulus.collisionIntensity ?? 0, 0, 1.4);
   const bodySignal = expand - contract;
   const learningRate = clamp(dt * 3.5, 0.02, 0.18);
@@ -688,6 +746,24 @@ const updateBodyState = (
   body.widthX = clamp(body.widthX + (bodySignal * 0.32 - collision * 0.08 + Math.abs(turn) * 0.06) * learningRate, 0.58, 1.75);
   body.heightY = clamp(body.heightY + (expand * 0.18 - contract * 0.2 + stabilize * 0.08 - collision * 0.05) * learningRate, 0.62, 1.85);
   body.depthZ = clamp(body.depthZ + (bodySignal * 0.18 + forward * 0.08 - collision * 0.07) * learningRate, 0.58, 1.75);
+
+  // Visual shape inspiration: pull body extents toward observed object when imitate motor is active.
+  if (
+    imitate > 0.08
+    && stimulus.visionWidth !== undefined
+    && stimulus.visionHeight !== undefined
+    && stimulus.visionDepth !== undefined
+  ) {
+    const targetW = clamp(0.55 + stimulus.visionWidth * 0.85, 0.55, 1.8);
+    const targetH = clamp(0.55 + stimulus.visionHeight * 0.95, 0.55, 1.9);
+    const targetD = clamp(0.55 + stimulus.visionDepth * 0.85, 0.55, 1.8);
+    // Stronger pull so morph is visible within seconds, not minutes.
+    const pull = Math.max(imitate, 0.12) * learningRate * 2.6;
+    body.widthX = clamp(body.widthX + (targetW - body.widthX) * pull, 0.55, 1.8);
+    body.heightY = clamp(body.heightY + (targetH - body.heightY) * pull, 0.55, 1.9);
+    body.depthZ = clamp(body.depthZ + (targetD - body.depthZ) * pull, 0.55, 1.8);
+  }
+
   body.deformation = clamp(body.deformation * 0.88 + (collision * 0.32 + Math.abs(bodySignal) * 0.1 + Math.abs(turn) * 0.08 - stabilize * 0.16), 0, 1);
   body.gaitDrive = clamp(body.gaitDrive * 0.82 + (forward * (0.35 + joint * 0.55) + expand * 0.08 - body.drag * 0.06), 0, 1.4);
   body.mass = clamp((body.widthX * body.heightY * body.depthZ) ** 0.72, 0.45, 2.4);
@@ -766,7 +842,11 @@ export const stepEmbodiedCreature = (
 
   let desiredX = creature.wanderX;
   let desiredZ = creature.wanderZ;
-  if (goal === 'seekStimulus' && stimulus.nearestX !== undefined && stimulus.nearestZ !== undefined) {
+  if (
+    (goal === 'seekStimulus' || goal === 'imitateAndConstruct' || goal === 'observe3dcg')
+    && stimulus.nearestX !== undefined
+    && stimulus.nearestZ !== undefined
+  ) {
     desiredX = stimulus.nearestX;
     desiredZ = stimulus.nearestZ;
   } else if (goal === 'avoidOverload') {
@@ -821,6 +901,43 @@ export const stepEmbodiedCreature = (
   currents[17] = jointMotion;
   currents[18] = rigLoad;
 
+  const visionW = clamp(stimulus.visionWidth ?? 0, 0, 1.4);
+  const visionH = clamp(stimulus.visionHeight ?? 0, 0, 1.4);
+  const visionD = clamp(stimulus.visionDepth ?? 0, 0, 1.4);
+  const visionSal = clamp(stimulus.visionSalience ?? 0, 0, 1.4);
+  const matchBefore = clamp(
+    stimulus.visionMatch
+      ?? (visionSal > 0.04
+        ? 1 - (
+          Math.abs(normalizeExtentLocal(body.widthX) - visionW)
+          + Math.abs(normalizeExtentLocal(body.heightY) - visionH)
+          + Math.abs(normalizeExtentLocal(body.depthZ) - visionD)
+        ) / 2.4
+        : 0.5),
+    0,
+    1,
+  );
+  const visionNovelty = visionSal > 0.04 ? clamp(1 - matchBefore, 0, 1.4) : 0;
+  if (creature.network.neurons.length > 30) {
+    currents[24] = visionW * (0.5 + visionSal * 0.5);
+    currents[25] = visionH * (0.5 + visionSal * 0.5);
+    currents[26] = visionD * (0.5 + visionSal * 0.5);
+    // Keep some "build intent" even after morph succeeds (novelty alone dies when match is high).
+    currents[27] = Math.max(visionNovelty * 1.1, visionSal * 0.35 + matchBefore * 0.45);
+  }
+  // Morph-only drive: approach/imitate quality 3DCG references (generated GLBs / props).
+  // Do NOT inject construct motor — primitive spam is not commercial mesh learning.
+  if (
+    (goal === 'imitateAndConstruct' || goal === 'observe3dcg')
+    && creature.network.neurons.length > 30
+    && visionSal > 0.08
+  ) {
+    currents[29] = Math.max(
+      currents[29] ?? 0,
+      clamp(0.3 + visionSal * 0.55 + matchBefore * 0.35 + visionNovelty * 0.25, 0, 1.35),
+    );
+  }
+
   const events = stepNetwork(creature.network, currents);
   const activation = (label: string) => activationFromEvents(creature.network, events, label);
   const turn = activation('motor:right') - activation('motor:left');
@@ -829,6 +946,25 @@ export const stepEmbodiedCreature = (
     : 0;
   updateBodyState(creature, events, dt, forward, turn, stimulus);
   const bodyAfter = ensureBodyState(creature);
+  const matchAfter = visionSal > 0.04
+    ? clamp(
+      1 - (
+        Math.abs(normalizeExtentLocal(bodyAfter.widthX) - visionW)
+        + Math.abs(normalizeExtentLocal(bodyAfter.heightY) - visionH)
+        + Math.abs(normalizeExtentLocal(bodyAfter.depthZ) - visionD)
+      ) / 2.4,
+      0,
+      1,
+    )
+    : matchBefore;
+  const morphReward = clamp((matchAfter - matchBefore) * 1.6 + matchAfter * 0.12, -0.2, 0.45);
+
+  // Commercial path: mesh ops / SDF / quality_loop live in Python (dst_snn.threedcg).
+  // EDEN biotope must NOT spawn infinite box/sphere/cylinder copies — that only
+  // burns server sync and creates self-imitation loops (build←build←build).
+  const constructReward = 0;
+  creature.pendingConstruct = null;
+
   const bodyDrive = clamp(0.82 + bodyAfter.gaitDrive * 0.24 - bodyAfter.drag * 0.18 - Math.max(0, bodyAfter.mass - 1) * 0.08, 0.42, 1.28);
   const moveSpeed = 1.45 * dt * forward * bodyDrive;
   const turnStep = 0.9 * dt * turn * clamp(1 + bodyAfter.asymmetry * 0.12, 0.72, 1.28);
@@ -836,7 +972,14 @@ export const stepEmbodiedCreature = (
 
   creature.x += Math.sin(direction) * moveSpeed;
   creature.z += Math.cos(direction) * moveSpeed;
-  creature.energy = clamp(creature.energy - 0.002 * dt - 0.003 * dt * forward, 0.05, 1);
+  // Passive drain is small; positive reward / morph success regenerates energy
+  // so long sessions (and localStorage restore) do not freeze constructs forever.
+  const energyDrain = 0.0012 * dt + 0.002 * dt * forward;
+  const energyRegen = 0.0045 * dt
+    + Math.max(0, morphReward) * 0.012
+    + constructReward * 0.02
+    + (matchAfter > 0.5 ? 0.003 * dt : 0);
+  creature.energy = clamp(creature.energy - energyDrain + energyRegen, 0.05, 1);
 
   const afterDistance = Math.hypot(desiredX - creature.x, desiredZ - creature.z);
   const stimulusDistanceAfter = stimulus.nearestX === undefined || stimulus.nearestZ === undefined
@@ -846,16 +989,29 @@ export const stepEmbodiedCreature = (
   const gaitReward = clamp(bodyAfter.gaitDrive * 0.1 + bodyStability * 0.08 - bodyAfter.drag * 0.05, -0.16, 0.18);
   const reward = (() => {
     const collisionPenalty = clamp((stimulus.collisionIntensity ?? 0) * 0.6, 0, 0.6);
-    if (goal === 'wander') return (afterDistance < beforeDistance ? 1.15 : 0.55) + gaitReward;
+    const morphAndBuild = morphReward + constructReward;
+    if (goal === 'wander') return (afterDistance < beforeDistance ? 1.15 : 0.55) + gaitReward + morphAndBuild * 0.85;
     if (goal === 'seekStimulus') {
       const noveltyReward = stimulusDistanceAfter < stimulusDistanceBefore ? 1.35 : 0.45;
-      return noveltyReward + clamp(stimulus.nearestIntensity * 0.25, 0, 0.25) - collisionPenalty + gaitReward;
+      return noveltyReward + clamp(stimulus.nearestIntensity * 0.25, 0, 0.25) - collisionPenalty + gaitReward + morphAndBuild;
     }
     if (goal === 'avoidOverload') {
-      if (stimulus.overload < 0.25) return 1.05 + bodyStability * 0.08;
-      return (stimulusDistanceAfter > stimulusDistanceBefore ? 1.35 : 0.3) - collisionPenalty + gaitReward;
+      if (stimulus.overload < 0.25) return 1.05 + bodyStability * 0.08 + morphAndBuild * 0.5;
+      return (stimulusDistanceAfter > stimulusDistanceBefore ? 1.35 : 0.3) - collisionPenalty + gaitReward + morphAndBuild * 0.5;
     }
-    return 0.7 - collisionPenalty + gaitReward;
+    if (goal === 'imitateAndConstruct' || goal === 'observe3dcg') {
+      // Reward morph fidelity toward quality references — not external primitive builds.
+      return (
+        0.55
+        + morphReward * 1.55
+        + clamp(matchAfter * 0.45, 0, 0.45)
+        + clamp(visionSal * 0.25, 0, 0.3)
+        + (stimulusDistanceAfter < stimulusDistanceBefore ? 0.3 : 0)
+        - collisionPenalty
+        + gaitReward * 0.5
+      );
+    }
+    return 0.7 - collisionPenalty + gaitReward + morphAndBuild;
   })();
   const salience = clamp(
     stimulus.nearestIntensity * 0.35
@@ -864,7 +1020,10 @@ export const stepEmbodiedCreature = (
       + (stimulus.collisionIntensity ?? 0) * 0.45
       + forward * 0.12
       + bodyAfter.deformation * 0.18
-      + bodyAfter.gaitDrive * 0.08,
+      + bodyAfter.gaitDrive * 0.08
+      + visionSal * 0.25
+      + visionNovelty * 0.2
+      + constructReward * 0.3,
     0,
     1,
   );
@@ -902,8 +1061,16 @@ export const stepEmbodiedCreature = (
       mass: bodyAfter.mass,
       drag: bodyAfter.drag,
       body_stability: bodyStability,
+      vision_salience: visionSal,
+      vision_match: matchAfter,
+      morph_reward: morphReward,
+      construct_reward: constructReward,
+      vision_label: stimulus.visionLabel ?? '',
     },
   });
 
   return events;
 };
+
+const normalizeExtentLocal = (meters: number, typical = 1.2) =>
+  Math.min(1.4, Math.max(0, meters / Math.max(0.2, typical)));

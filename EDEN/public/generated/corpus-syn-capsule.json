@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 6,
+  "family": "capsule",
+  "quality": 0.9885373905124938,
+  "path": "EDEN/public/generated/corpus-syn-capsule.glb",
+  "n_vertices": 150,
+  "n_faces": 288,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-syn-capsule.glb",
+  "category": "capsule",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "syn-capsule"
+}

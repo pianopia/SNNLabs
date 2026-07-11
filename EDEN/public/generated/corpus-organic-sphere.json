@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 3,
+  "family": "sphere",
+  "quality": 0.9990601084106244,
+  "path": "EDEN/public/generated/corpus-organic-sphere.glb",
+  "n_vertices": 162,
+  "n_faces": 320,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-organic-sphere.glb",
+  "category": "organic",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "organic-sphere"
+}

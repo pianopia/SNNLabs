@@ -29,15 +29,48 @@ export const deriveSnnRenderState = (
   previous: SnnRenderState,
 ): SnnRenderState => {
   const body = events.find((event) => event.kind === 'body');
+  const construct = events.find(
+    (event) => event.kind === 'global_signal' && event.label === 'construct',
+  );
   const overload = body ? numberMeta(body, 'overload') : 0;
   const ambient = body ? numberMeta(body, 'ambient_stimulus') : 0;
   const nearest = body ? numberMeta(body, 'nearest_stimulus') : 0;
   const deformation = body ? numberMeta(body, 'deformation') : 0;
   const gaitDrive = body ? numberMeta(body, 'gait_drive') : 0;
+  const morphReward = body ? numberMeta(body, 'morph_reward') : 0;
+  const visionMatch = body ? numberMeta(body, 'vision_match') : 0;
+  const visionSal = body ? numberMeta(body, 'vision_salience') : 0;
   const reward = events.find((event) => event.kind === 'global_signal')?.value ?? 0;
 
-  if (!body) {
+  if (!body && !construct) {
     return previous;
+  }
+
+  if (construct) {
+    return {
+      auraColor: '#7dffb3',
+      emissiveIntensity: 1.05,
+      scale: 1.18,
+      label: 'BUILDING',
+    };
+  }
+
+  if (morphReward > 0.08 || visionMatch > 0.55) {
+    return {
+      auraColor: '#ffe566',
+      emissiveIntensity: 0.95,
+      scale: 1.08 + Math.min(0.14, visionMatch * 0.16),
+      label: `MORPH ${(visionMatch * 100).toFixed(0)}%`,
+    };
+  }
+
+  if (visionSal > 0.15) {
+    return {
+      auraColor: '#72f7ff',
+      emissiveIntensity: 0.82,
+      scale: 1.06,
+      label: 'IMITATING',
+    };
   }
 
   if (overload > 0.35) {
@@ -45,7 +78,7 @@ export const deriveSnnRenderState = (
       auraColor: '#ff765c',
       emissiveIntensity: 0.85,
       scale: 1.08,
-      label: 'SNN Life overload',
+      label: 'overload',
     };
   }
 
@@ -54,7 +87,7 @@ export const deriveSnnRenderState = (
       auraColor: '#ffbf69',
       emissiveIntensity: 0.78,
       scale: 1.02 + Math.min(0.08, deformation * 0.12),
-      label: 'SNN Life adapting',
+      label: 'adapting',
     };
   }
 
@@ -63,7 +96,7 @@ export const deriveSnnRenderState = (
       auraColor: '#72f7ff',
       emissiveIntensity: 0.75,
       scale: 1.04,
-      label: 'SNN Life sensing',
+      label: 'sensing',
     };
   }
 
@@ -72,7 +105,7 @@ export const deriveSnnRenderState = (
       auraColor: '#9dff8f',
       emissiveIntensity: 0.72,
       scale: 1.02,
-      label: 'SNN Life moving',
+      label: 'moving',
     };
   }
 
@@ -81,7 +114,7 @@ export const deriveSnnRenderState = (
       auraColor: '#d8a8ff',
       emissiveIntensity: 0.68,
       scale: 1.03,
-      label: 'SNN Life attuned',
+      label: 'attuned',
     };
   }
 
@@ -89,7 +122,7 @@ export const deriveSnnRenderState = (
     auraColor: '#b6ff4d',
     emissiveIntensity: Math.max(0.45, Math.min(0.75, reward * 0.55)),
     scale: 1,
-    label: 'SNN Life',
+    label: 'alive',
   };
 };
 
@@ -98,7 +131,20 @@ export const deriveSnnChatSignal = (
   lastMessageAt: number,
   now: number,
 ): SnnChatSignal | null => {
-  if (now - lastMessageAt < 6000) return null;
+  // Morph/construct feedback should feel continuous, not once per 6s.
+  if (now - lastMessageAt < 2800) return null;
+
+  const construct = events.find(
+    (event) => event.kind === 'global_signal' && event.label === 'construct',
+  );
+  if (construct) {
+    const shape = construct.meta?.shape;
+    const inspired = construct.meta?.inspired_by;
+    return {
+      text: `★ construct ${typeof shape === 'string' ? shape : 'object'}${inspired ? ` ← ${inspired}` : ''}`,
+      priority: 4,
+    };
+  }
 
   const body = events.find((event) => event.kind === 'body');
   if (!body) return null;
@@ -108,8 +154,21 @@ export const deriveSnnChatSignal = (
   const nearest = numberMeta(body, 'nearest_stimulus');
   const deformation = numberMeta(body, 'deformation');
   const gaitDrive = numberMeta(body, 'gait_drive');
+  const morphReward = numberMeta(body, 'morph_reward');
+  const visionMatch = numberMeta(body, 'vision_match');
+  const visionLabel = typeof body.meta?.vision_label === 'string' ? body.meta.vision_label : '';
+  const bodyW = numberMeta(body, 'body_width');
+  const bodyH = numberMeta(body, 'body_height');
+  const bodyD = numberMeta(body, 'body_depth');
   const curiositySpike = events.some((event) => event.kind === 'spike' && event.label === 'interneuron:curiosity');
   const defenseSpike = events.some((event) => event.kind === 'spike' && event.label === 'interneuron:defense');
+
+  if (morphReward > 0.05 || visionMatch > 0.4) {
+    return {
+      text: `morph→${visionLabel || 'shape'} match=${(visionMatch * 100).toFixed(0)}% body=${bodyW.toFixed(2)}×${bodyH.toFixed(2)}×${bodyD.toFixed(2)}`,
+      priority: 3,
+    };
+  }
 
   if (overload > 0.45 || defenseSpike) {
     return { text: `刺激過多を検知: overload=${overload.toFixed(2)}`, priority: 3 };

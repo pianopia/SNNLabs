@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 7,
+  "family": "l_beam",
+  "quality": 0.9835833332341699,
+  "path": "EDEN/public/generated/corpus-syn-l_beam.glb",
+  "n_vertices": 16,
+  "n_faces": 24,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-syn-l_beam.glb",
+  "category": "l_beam",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "syn-l_beam"
+}

@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 11,
+  "family": "t_joint",
+  "quality": 0.9843333331393563,
+  "path": "EDEN/public/generated/corpus-syn-t_joint.glb",
+  "n_vertices": 16,
+  "n_faces": 24,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-syn-t_joint.glb",
+  "category": "t_joint",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "syn-t_joint"
+}

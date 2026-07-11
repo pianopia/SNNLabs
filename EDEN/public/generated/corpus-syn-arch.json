@@ -1,0 +1,17 @@
+{
+  "track": "corpus_reference",
+  "seed": 4,
+  "family": "arch",
+  "quality": 0.9908567066227194,
+  "path": "EDEN/public/generated/corpus-syn-arch.glb",
+  "n_vertices": 140,
+  "n_faces": 268,
+  "bones": [],
+  "has_uv": false,
+  "has_skin": false,
+  "url": "/generated/corpus-syn-arch.glb",
+  "category": "arch",
+  "license": "synthetic-internal",
+  "source": "synthetic-internal",
+  "asset_id": "syn-arch"
+}
